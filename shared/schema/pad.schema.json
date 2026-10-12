@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scratchpad.app/schema/pad.json",
+  "title": "Pad",
+  "description": "One Scratchpad pad: a dated (or pinned) dot-grid page of freeform blocks plus a to-do column. Shared by the Swift (iOS/macOS) and Tauri (Linux) apps. Stored as one JSON file per pad; assets live beside it under assets/.",
+  "type": "object",
+  "required": ["v", "id", "title", "tag", "pinned", "createdAt", "updatedAt", "blocks", "todos"],
+  "properties": {
+    "v": { "const": 1 },
+    "id": { "type": "string", "description": "YYYY-MM-DD for a daily pad, otherwise a slug for a pinned pad." },
+    "date": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Null for pinned pads." },
+    "title": { "type": "string" },
+    "tag": { "type": "string", "description": "One tag, no leading #." },
+    "pinned": { "type": "boolean" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "blocks": { "type": "array", "items": { "$ref": "#/$defs/block" } },
+    "todos": { "type": "array", "items": { "$ref": "#/$defs/todo" } }
+  },
+  "$defs": {
+    "block": {
+      "type": "object",
+      "required": ["id", "kind", "x", "y", "w"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["text", "table", "image", "file", "link", "code", "divider"] },
+        "x": { "type": "integer", "description": "Grid-snapped px from the pad's left edge." },
+        "y": { "type": "integer" },
+        "w": { "type": "integer", "minimum": 48 },
+        "h": { "type": ["integer", "null"], "description": "Null means content height." },
+        "text": { "type": "string", "description": "text, code: body. link: title." },
+        "rows": { "type": "array", "items": { "type": "array", "items": { "type": "string" } }, "description": "table: first row is the header." },
+        "asset": { "type": "string", "description": "image, file: path relative to the store root, e.g. assets/3f2a.png" },
+        "name": { "type": "string", "description": "file: display name." },
+        "size": { "type": "integer", "description": "file: bytes." },
+        "url": { "type": "string", "description": "link: href." },
+        "caption": { "type": "string" },
+        "language": { "type": "string", "description": "code: hint only." }
+      }
+    },
+    "todo": {
+      "type": "object",
+      "required": ["id", "text", "status", "createdAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "status": { "enum": ["open", "done", "deferred"] },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Survives rollover, so age (overdue after 3 days) is measured from the original entry." },
+        "carriedFrom": { "type": ["string", "null"], "description": "Pad id the row was copied from at rollover." }
+      }
+    }
+  }
+}

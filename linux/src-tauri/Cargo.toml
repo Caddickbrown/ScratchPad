@@ -1,0 +1,20 @@
+[package]
+name = "scratchpad"
+version = "0.1.0"
+description = "Scratchpad: a daily dot-grid pad with a to-do column"
+edition = "2021"
+
+[lib]
+name = "scratchpad_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+scratchpad-store = { path = "../store" }

@@ -1,0 +1,12 @@
+.DS_Store
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+apple/.build/
+apple/.swiftpm/
+linux/node_modules/
+linux/dist/
+linux/src-tauri/target/
+linux/store/target/
+linux/src-tauri/gen/schemas/
+target/
