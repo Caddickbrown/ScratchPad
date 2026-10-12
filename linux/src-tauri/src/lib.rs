@@ -56,10 +56,10 @@ fn asset_path(store: State<AppStore>, rel: String) -> Result<String, String> {
     store.0.lock().unwrap().asset_path(&rel).map(|p| p.to_string_lossy().to_string()).ok_or_else(|| "bad asset path".into())
 }
 
-/// Webview errors land on stderr in debug builds, so a headless run can be diagnosed.
+/// Webview boot and error lines land on stderr, so a headless run can be diagnosed.
 #[tauri::command]
 fn debug_log(msg: String) {
-    if cfg!(debug_assertions) { eprintln!("[webview] {msg}"); }
+    eprintln!("[webview] {msg}");
 }
 
 #[tauri::command]
