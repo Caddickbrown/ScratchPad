@@ -10,7 +10,9 @@ final class AppState: ObservableObject {
     @Published var showTodoSheet = false
     @Published var error: String?
 
-    let store: PadStore
+    private(set) var store: PadStore
+    @Published var searchText = ""
+    @Published var usingICloud = false
     private var saveTask: Task<Void, Never>?
     static let todoRows = 18
 
@@ -19,9 +21,38 @@ final class AppState: ObservableObject {
         reload()
     }
 
+    /// Starts on the local store, then moves to the iCloud container when one is available.
     static func live() -> AppState {
-        do { return AppState(store: try PadStore(root: try PadStore.defaultRoot())) }
+        let state: AppState
+        do { state = AppState(store: try PadStore(root: try PadStore.defaultRoot())) }
         catch { fatalError("Cannot open store: \(error)") }
+        Task.detached(priority: .utility) {
+            guard let root = PadStore.iCloudRoot(), let cloud = try? PadStore(root: root) else { return }
+            await state.switchStore(to: cloud)
+        }
+        return state
+    }
+
+    func switchStore(to newStore: PadStore) {
+        flush()
+        store = newStore
+        usingICloud = true
+        current = nil
+        reload()
+    }
+
+    var filteredPads: [Pad] { pads.filter { $0.matches(searchText) } }
+
+    func moveTodo(_ id: String, before: String?) { current?.moveTodo(id, before: before) }
+
+    /// Drops a to-do onto the pad as a text block and removes the row.
+    func todoToBlock(_ id: String, at point: CGPoint) {
+        guard let todo = current?.todos.first(where: { $0.id == id }), !todo.text.isEmpty else { return }
+        var b = Block(kind: .text, x: Int(point.x), y: Int(point.y), w: 408, text: todo.text)
+        b.snap()
+        current?.blocks.append(b)
+        current?.todos.removeAll { $0.id == id }
+        if let p = current { current = Self.padded(p) }
     }
 
     func reload() {
@@ -132,8 +163,18 @@ final class AppState: ObservableObject {
                 let b = try Placement.block(from: result, at: at, store: store)
                 current?.blocks.append(b)
                 selectedBlockID = b.id
+                if case .link(let url, nil) = result { titleLater(blockID: b.id, url: url) }
                 at.y += (b.h ?? 160) + gridSize
             } catch { self.error = "\(error)" }
+        }
+    }
+
+    /// Fills a link card's title once the page answers, unless the user has already retyped it.
+    private func titleLater(blockID: String, url: String) {
+        Task {
+            guard let title = await LinkTitle.fetch(url),
+                  let i = current?.blocks.firstIndex(where: { $0.id == blockID }), current?.blocks[i].text == url else { return }
+            current?.blocks[i].text = title
         }
     }
 

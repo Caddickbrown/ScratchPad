@@ -75,7 +75,11 @@ struct TodoRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("To-do status: \(todo.status.rawValue)")
+            .accessibilityLabel("To-do status: \(todo.status.rawValue). Drag to reorder or onto the pad")
+            .draggable(TodoDrag.payload(todo.id)) {
+                Text(todo.text.isEmpty ? "(empty)" : todo.text).font(Fonts.ui(13)).padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(p.cell).overlay(Rectangle().stroke(p.accent, lineWidth: 1))
+            }
             Rectangle().fill(p.rule).frame(width: 8, height: 1)
             TextField("", text: text)
                 .textFieldStyle(.plain)
@@ -93,5 +97,23 @@ struct TodoRow: View {
                 .onChange(of: text.wrappedValue) { _, v in if v.isEmpty { state.removeTodoIfEmpty(todo.id) } }
         }
         .frame(height: compact ? 44 : 36)
+        .dropDestination(for: String.self) { items, location in
+            guard let id = items.compactMap(TodoDrag.id).first else { return false }
+            let before = location.y < (compact ? 22 : 18) ? todo.id : nextID
+            state.moveTodo(id, before: before)
+            return true
+        }
     }
+
+    private var nextID: String? {
+        guard let todos = state.current?.todos, let i = todos.firstIndex(where: { $0.id == todo.id }) else { return nil }
+        return i + 1 < todos.count ? todos[i + 1].id : nil
+    }
+}
+
+/// A dragged to-do travels as a prefixed string so the canvas can tell it from dropped text.
+enum TodoDrag {
+    static let prefix = "scratchpad-todo:"
+    static func payload(_ id: String) -> String { prefix + id }
+    static func id(_ s: String) -> String? { s.hasPrefix(prefix) ? String(s.dropFirst(prefix.count)) : nil }
 }

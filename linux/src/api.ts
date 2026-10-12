@@ -20,6 +20,7 @@ export interface Api {
   openExternal(url: string): Promise<void>;
   openPath(rel: string): Promise<void>;
   storeRoot(): Promise<string>;
+  fetchTitle(url: string): Promise<string | null>;
 }
 
 const tauriApi: Api = {
@@ -42,6 +43,7 @@ const tauriApi: Api = {
     await openPath(await invoke<string>("asset_path", { rel }));
   },
   storeRoot: () => invoke("store_root"),
+  fetchTitle: (url) => invoke("fetch_title", { url }),
 };
 
 const KEY = "scratchpad.pads";
@@ -77,6 +79,7 @@ const browserApi: Api = {
   openExternal: async (url) => { window.open(url, "_blank"); },
   openPath: async (rel) => { const u = assets.get(rel); if (u) window.open(u, "_blank"); },
   storeRoot: async () => "localStorage (browser preview)",
+  fetchTitle: async () => null,
 };
 
 export const api: Api = tauri ? tauriApi : browserApi;

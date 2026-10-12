@@ -12,10 +12,16 @@ public final class PadStore: @unchecked Sendable {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("assets"), withIntermediateDirectories: true)
     }
 
-    /// Default location: Application Support/Scratchpad. Replace with the iCloud container for sync.
+    /// Local location: Application Support/Scratchpad.
     public static func defaultRoot() throws -> URL {
         let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         return base.appendingPathComponent("Scratchpad", isDirectory: true)
+    }
+
+    /// iCloud Drive location when the app has the container entitlement and the user is signed in, else nil.
+    /// Slow: call off the main thread. Pads/ and assets/ live under Documents so they show in Files.
+    public static func iCloudRoot() -> URL? {
+        FileManager.default.url(forUbiquityContainerIdentifier: nil)?.appendingPathComponent("Documents/Scratchpad", isDirectory: true)
     }
 
     private func padURL(_ id: String) -> URL { root.appendingPathComponent("pads/\(id).json") }

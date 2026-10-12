@@ -54,6 +54,30 @@ final class ModelTests: XCTestCase {
     }
 }
 
+final class SearchAndTitleTests: XCTestCase {
+    func testSearchHitsBlocksAndTodos() {
+        var pad = Pad.daily("2026-10-12")
+        pad.blocks = [Block(kind: .table, x: 0, y: 0, w: 96, rows: [["Item", "Berlin"]])]
+        pad.todos = [Todo(text: "Call Mum")]
+        XCTAssertTrue(pad.matches("berlin"))
+        XCTAssertTrue(pad.matches("MUM"))
+        XCTAssertFalse(pad.matches("paris"))
+        XCTAssertTrue(pad.matches(""))
+    }
+    func testMoveTodo() {
+        var pad = Pad.daily("2026-10-12")
+        pad.todos = ["a", "b", "c"].map { Todo(id: $0, text: $0) }
+        pad.moveTodo("c", before: "a")
+        XCTAssertEqual(pad.todos.map(\.id), ["c", "a", "b"])
+        pad.moveTodo("c", before: nil)
+        XCTAssertEqual(pad.todos.map(\.id), ["a", "b", "c"])
+    }
+    func testTitleParse() {
+        XCTAssertEqual(LinkTitle.parse("<html><head><TITLE>  Tauri &amp;\n  friends </title>"), "Tauri & friends")
+        XCTAssertNil(LinkTitle.parse("<p>no title</p>"))
+    }
+}
+
 final class RolloverTests: XCTestCase {
     func testCarriesOpenAndDeferredNotDone() {
         var prev = Pad.daily("2026-10-11")

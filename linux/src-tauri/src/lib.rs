@@ -1,5 +1,6 @@
 use base64::Engine;
 use scratchpad_store::{Pad, Store};
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Manager, State};
@@ -62,6 +63,19 @@ fn debug_log(msg: String) {
     eprintln!("[webview] {msg}");
 }
 
+/// Page title for a pasted link. Best effort: 5 s timeout, first 256 KB, http(s) only.
+#[tauri::command]
+async fn fetch_title(url: String) -> Result<Option<String>, String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) { return Err("not http".into()); }
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(5)).build();
+        let resp = agent.get(&url).set("User-Agent", "Scratchpad/0.1").call().map_err(err)?;
+        let mut body = String::new();
+        resp.into_reader().take(256 * 1024).read_to_string(&mut body).map_err(err)?;
+        Ok(scratchpad_store::html_title(&body))
+    }).await.map_err(err)?
+}
+
 #[tauri::command]
 fn store_root(store: State<AppStore>) -> String {
     store.0.lock().unwrap().root.to_string_lossy().to_string()
@@ -78,7 +92,7 @@ pub fn run() {
             app.manage(AppStore(Mutex::new(store)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_pads, load_pad, today_pad, save_pad, delete_pad, store_asset, import_file, asset_path, store_root, debug_log])
+        .invoke_handler(tauri::generate_handler![list_pads, load_pad, today_pad, save_pad, delete_pad, store_asset, import_file, asset_path, store_root, debug_log, fetch_title])
         .run(tauri::generate_context!())
         .expect("error while running scratchpad");
 }

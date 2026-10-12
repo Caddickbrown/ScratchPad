@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { carry, dailyPad, isOverdue, nextStatus, padded, rolloverSource, snapBlock, type Pad } from "../model";
+import { carry, dailyPad, isOverdue, matches, moveTodo, nextStatus, padded, rolloverSource, snapBlock, type Pad } from "../model";
 
 describe("model", () => {
   it("snaps to the 24px grid", () => {
@@ -37,5 +37,21 @@ describe("model", () => {
     const pad = JSON.parse(readFileSync(new URL("../../../shared/samples/2026-10-12.json", import.meta.url), "utf8")) as Pad;
     expect(pad.blocks).toHaveLength(4);
     expect(padded(pad).todos).toHaveLength(18);
+  });
+  it("searches title, tag, blocks and to-dos", () => {
+    const pad = dailyPad("2026-10-12");
+    pad.blocks.push({ id: "b", kind: "table", x: 0, y: 0, w: 96, rows: [["Item", "Berlin"]] });
+    pad.todos.push({ id: "t", text: "Call Mum", status: "open", createdAt: "2026-10-12T00:00:00Z" });
+    expect(matches(pad, "berlin")).toBe(true);
+    expect(matches(pad, "MUM")).toBe(true);
+    expect(matches(pad, "paris")).toBe(false);
+    expect(matches(pad, "")).toBe(true);
+  });
+  it("moves a to-do before another or to the end", () => {
+    const t = (id: string) => ({ id, text: id, status: "open" as const, createdAt: "" });
+    const todos = [t("a"), t("b"), t("c")];
+    expect(moveTodo(todos, "c", "a").map((x) => x.id)).toEqual(["c", "a", "b"]);
+    expect(moveTodo(todos, "a", null).map((x) => x.id)).toEqual(["b", "c", "a"]);
+    expect(moveTodo(todos, "b", "b")).toBe(todos);
   });
 });

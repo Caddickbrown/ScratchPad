@@ -30,6 +30,11 @@ struct CanvasView: View {
                 }
             }
         }
+        .dropDestination(for: String.self) { items, location in
+            guard let id = items.compactMap(TodoDrag.id).first else { return false }
+            state.todoToBlock(id, at: location)
+            return true
+        }
         #if os(macOS)
         .onPasteCommand(of: PasteBridge.readableTypes) { providers in
             PasteBridge.read(providers: providers) { contents in state.paste(contents) }

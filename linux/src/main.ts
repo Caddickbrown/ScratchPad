@@ -1,6 +1,6 @@
 import { api, isTauri } from "./api";
 import {
-  GRID, type Block, type BlockKind, type Pad, type Todo, counts, isOverdue, newTodo, nextFreePoint, nextStatus,
+  GRID, type Block, type BlockKind, type Pad, type Todo, counts, isOverdue, matches, moveTodo, newTodo, nextFreePoint, nextStatus,
   padded, slugify, snap, snapBlock, uid, dailyPad, TODO_ROWS,
 } from "./model";
 import { classify, fromDataTransfer, type ClipboardContents, type PasteResult } from "./paste";
@@ -36,6 +36,7 @@ async function flush(): Promise<void> {
 const svg = (paths: string, size = 20, extra = "") =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${paths}</svg>`;
 const I = {
+  search: svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
   sidebar: svg('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M9 5v14"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>', 16, 'stroke-width="2.2"'),
   check: svg('<path d="m5 12 5 5L20 7"/>', 14, 'stroke="var(--accent-ink)" stroke-width="3"'),
@@ -110,6 +111,7 @@ function renderShell(): void {
         el("button", { class: "icon-btn", "aria-label": "Toggle sidebar", title: "Toggle sidebar", html: I.sidebar, onClick: () => { state.railOpen = !state.railOpen; $(".rail").classList.toggle("hidden", !state.railOpen); } })),
       el("div", { class: "center" }, "Scratchpad"),
       el("div", { class: "group" },
+        el("button", { class: "icon-btn", "aria-label": "Search pads", title: "Search pads (Ctrl+K)", html: I.search, onClick: openSearch }),
         el("button", { class: "icon-btn", id: "theme", "aria-label": "Appearance", title: "Appearance", onClick: () => setAppearance(nextAppearance[state.appearance]) }),
         el("button", { class: "icon-btn", "aria-label": "Paste as block", title: "Paste as block (Ctrl+Shift+V)", html: I.paste, onClick: pasteFromClipboard }),
         el("button", { class: "icon-btn", "aria-label": "Insert", title: "Insert block", html: I.plus, onClick: (e: MouseEvent) => openMenu(e.clientX - 180, e.clientY + 16) }),
@@ -196,7 +198,7 @@ function sizeCanvas(canvas: HTMLElement, pad: Pad): void {
   const h = pad.blocks.reduce((m, b) => Math.max(m, b.y + (b.h ?? 240)), 0) + 480;
   const w = pad.blocks.reduce((m, b) => Math.max(m, b.x + b.w), 0) + 240;
   canvas.style.minHeight = `${Math.max(720, h)}px`;
-  canvas.style.minWidth = `${Math.max(900, w)}px`;
+  canvas.style.minWidth = `${w}px`;
 }
 
 function canvasPoint(e: MouseEvent): { x: number; y: number } {
@@ -436,7 +438,7 @@ async function place(results: PasteResult[], at?: { x: number; y: number }): Pro
       switch (r.kind) {
         case "text": b = { ...base, kind: "text", w: 408, text: r.text }; break;
         case "code": b = { ...base, kind: "code", w: 408, text: r.text, language: r.language }; break;
-        case "link": b = { ...base, kind: "link", w: 300, text: r.title ?? r.url, url: r.url }; break;
+        case "link": b = { ...base, kind: "link", w: 300, text: r.title ?? r.url, url: r.url }; if (!r.title) titleLater(b.id, r.url); break;
         case "table": b = { ...base, kind: "table", w: Math.min(720, 120 * Math.max(2, r.rows[0].length) + 24), rows: r.rows }; break;
         case "image": {
           const asset = r.file.path ? (await api.importFile(r.file.path)).asset : await api.storeAsset(await bytesOf(r.file), r.ext);
@@ -454,6 +456,15 @@ async function place(results: PasteResult[], at?: { x: number; y: number }): Pro
   }
   state.lastPoint = null;
   touch(); renderPad();
+}
+
+/** Fills a link card's title once the page answers, unless the user has already retyped it. */
+function titleLater(blockId: string, url: string): void {
+  api.fetchTitle(url).then((title) => {
+    const b = state.current?.blocks.find((x) => x.id === blockId);
+    if (!title || !b || b.text !== url) return;
+    b.text = title; touch(); rerenderBlock(b);
+  }).catch(() => {});
 }
 
 async function bytesOf(f: { bytes?: ArrayBuffer; blob?: Blob }): Promise<ArrayBuffer> {
@@ -505,11 +516,13 @@ document.addEventListener("drop", (e) => {
   const at = canvasPointSafe(e);
   place(classify(fromDataTransfer(e.dataTransfer)), at);
 });
-function canvasPointSafe(e: MouseEvent): { x: number; y: number } | undefined {
+/** Grid point under a screen position, or undefined when it is outside the visible part of the canvas. */
+function canvasPointSafe(e: { clientX: number; clientY: number }): { x: number; y: number } | undefined {
   const c = document.getElementById("canvas");
   if (!c) return undefined;
+  const v = (c.parentElement ?? c).getBoundingClientRect(); // the scroll box: what is actually visible
+  if (e.clientX < v.left || e.clientX > v.right || e.clientY < v.top || e.clientY > v.bottom) return undefined;
   const r = c.getBoundingClientRect();
-  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return undefined;
   return { x: Math.max(0, snap(e.clientX - r.left)), y: Math.max(0, snap(e.clientY - r.top)) };
 }
 
@@ -519,9 +532,47 @@ async function wireTauriDrop(): Promise<void> {
   await getCurrentWebview().onDragDropEvent((event) => {
     if (event.payload.type !== "drop" || !state.current) return;
     const { x, y } = event.payload.position;
-    const at = canvasPointSafe({ clientX: x, clientY: y } as MouseEvent);
+    const at = canvasPointSafe({ clientX: x, clientY: y });
     place(classify({ files: event.payload.paths.map((p) => ({ name: p.split("/").pop() ?? "file", path: p })) }), at);
   });
+}
+
+// ---------- search ----------
+
+function openSearch(): void {
+  closeMenu();
+  document.getElementById("search")?.remove();
+  const input = el("input", { placeholder: "Search pads, blocks and to-dos", "aria-label": "Search" });
+  const results = el("div", { class: "results", role: "listbox" });
+  const panel = el("div", { class: "search", id: "search", role: "dialog", "aria-label": "Search" }, el("div", { class: "field" }, el("span", { html: I.search }), input), results);
+  const run = () => {
+    const q = input.value;
+    const pads = state.pads.map((p) => (p.id === state.current?.id ? state.current! : p));
+    const hits = q.trim() ? pads.filter((p) => matches(p, q)).slice(0, 20) : [];
+    results.replaceChildren(...hits.map((p) => el("button", { role: "option", onClick: () => { close(); openPad(p.id); } },
+      el("span", { class: "name" }, p.pinned ? p.title || p.id : `${dayLabel(p)}${p.title ? ", " + p.title : ""}`),
+      el("span", { class: "sub" }, snippet(p, q)))));
+    if (q.trim() && !hits.length) results.append(el("div", { class: "none" }, "Nothing matches"));
+  };
+  const close = () => { panel.remove(); document.removeEventListener("pointerdown", outside); };
+  const outside = (e: Event) => { if (!panel.contains(e.target as Node)) close(); };
+  input.addEventListener("input", run);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") close();
+    if (e.key === "Enter") (results.querySelector("button") as HTMLButtonElement | null)?.click();
+  });
+  setTimeout(() => document.addEventListener("pointerdown", outside), 0);
+  document.body.append(panel);
+  input.focus();
+}
+
+function snippet(p: Pad, q: string): string {
+  const needle = q.trim().toLowerCase();
+  const texts = [p.tag && `#${p.tag}`, ...p.todos.map((t) => t.text), ...p.blocks.flatMap((b) => [b.text, b.name, b.url, b.caption, ...(b.rows?.flat() ?? [])])];
+  const hit = texts.find((t) => t && t.toLowerCase().includes(needle)) ?? "";
+  const i = hit.toLowerCase().indexOf(needle);
+  const from = Math.max(0, i - 30);
+  return (from > 0 ? "…" : "") + hit.slice(from, from + 90).replace(/\n/g, " ");
 }
 
 // ---------- to-do column ----------
@@ -549,8 +600,9 @@ function renderTodoRow(t: Todo, i: number): HTMLElement {
   const pad = state.current!;
   const cls = [t.status, t.text === "" ? "empty" : "", isOverdue(t) ? "overdue" : ""].filter(Boolean).join(" ");
   const li = el("li", { class: cls, "data-id": t.id });
-  const circle = el("button", { class: "circle", "aria-label": `To-do ${i + 1}: ${t.status}`, onClick: () => { t.status = nextStatus[t.status]; touch(); renderTodo(); } },
+  const circle = el("button", { class: "circle", "aria-label": `To-do ${i + 1}: ${t.status}. Drag to reorder or onto the pad`, title: "Click to cycle, drag to reorder or onto the pad" },
     el("span", { html: t.status === "done" ? I.check : t.status === "deferred" ? I.slash : "" }));
+  wireTodoDrag(circle, li, t);
   const input = el("input", { value: t.text, "aria-label": `To-do ${i + 1} text`, onInput: () => {
     t.text = input.value;
     li.classList.toggle("empty", t.text === "");
@@ -571,6 +623,51 @@ function renderTodoRow(t: Todo, i: number): HTMLElement {
   });
   li.append(circle, el("span", { class: "dash", "aria-hidden": "true" }), input);
   return li;
+}
+
+/** Click cycles the status. A drag of more than 6 px reorders within the column, or drops the row on the pad as a text block. */
+function wireTodoDrag(circle: HTMLElement, li: HTMLElement, t: Todo): void {
+  let start: { x: number; y: number } | null = null, dragging = false, ghost: HTMLElement | null = null;
+  const rowUnder = (x: number, y: number): HTMLElement | null => {
+    const hit = document.elementFromPoint(x, y)?.closest(".todo li") as HTMLElement | null;
+    return hit && hit !== li ? hit : null;
+  };
+  circle.addEventListener("pointerdown", (e) => { if (e.button === 0) { start = { x: e.clientX, y: e.clientY }; circle.setPointerCapture(e.pointerId); } });
+  circle.addEventListener("pointermove", (e) => {
+    if (!start) return;
+    if (!dragging && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6) {
+      dragging = true; li.classList.add("lifting");
+      ghost = el("div", { class: "ghost" }, t.text || "(empty)"); document.body.append(ghost);
+    }
+    if (!dragging || !ghost) return;
+    ghost.style.left = `${e.clientX + 12}px`; ghost.style.top = `${e.clientY - 14}px`;
+    document.querySelectorAll(".todo li.over").forEach((x) => x.classList.remove("over"));
+    rowUnder(e.clientX, e.clientY)?.classList.add("over");
+    document.getElementById("canvas")?.classList.toggle("drop-target", !!canvasPointSafe(e));
+  });
+  const end = (e: PointerEvent) => {
+    if (!start) return;
+    const pad = state.current!;
+    const wasDragging = dragging;
+    start = null; dragging = false; ghost?.remove(); ghost = null;
+    li.classList.remove("lifting");
+    document.querySelectorAll(".todo li.over").forEach((x) => x.classList.remove("over"));
+    document.getElementById("canvas")?.classList.remove("drop-target");
+    if (!wasDragging) { t.status = nextStatus[t.status]; touch(); renderTodo(); return; }
+    const at = canvasPointSafe(e);
+    if (at) {
+      if (t.text) { pad.blocks.push(snapBlock({ id: uid(), kind: "text", x: at.x, y: at.y, w: 408, text: t.text })); pad.todos = padded({ ...pad, todos: pad.todos.filter((x) => x.id !== t.id) }).todos; }
+      touch(); renderPad(); renderTodo(); return;
+    }
+    const target = rowUnder(e.clientX, e.clientY);
+    if (target) {
+      const r = target.getBoundingClientRect();
+      const before = e.clientY < r.top + r.height / 2 ? target.dataset.id! : (target.nextElementSibling as HTMLElement | null)?.dataset.id ?? null;
+      pad.todos = moveTodo(pad.todos, t.id, before); touch(); renderTodo();
+    }
+  };
+  circle.addEventListener("pointerup", end);
+  circle.addEventListener("pointercancel", end);
 }
 
 function focusTodo(id: string): void {
@@ -600,6 +697,7 @@ document.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (!mod) return;
   if (e.key.toLowerCase() === "n" && !e.shiftKey) { e.preventDefault(); openToday(); }
+  else if (e.key.toLowerCase() === "k") { e.preventDefault(); openSearch(); }
   else if (e.key.toLowerCase() === "t" && e.shiftKey) { e.preventDefault(); const pad = state.current; if (pad) { pad.todos.unshift(newTodo()); touch(); renderTodo(); focusTodo(pad.todos[0].id); } }
   else if (e.key.toLowerCase() === "v" && e.shiftKey) { e.preventDefault(); pasteFromClipboard(); }
   else if (e.key.toLowerCase() === "d" && !e.shiftKey && editing()) {

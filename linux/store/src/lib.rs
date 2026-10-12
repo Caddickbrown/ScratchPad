@@ -181,6 +181,32 @@ impl Store {
     }
 }
 
+/// `<title>` text from an HTML document, entities decoded and whitespace collapsed.
+pub fn html_title(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let start = lower.find("<title")?;
+    let open_end = lower[start..].find('>')? + start + 1;
+    let close = lower[open_end..].find("</title>")? + open_end;
+    let raw = &html[open_end..close];
+    let text = raw.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ");
+    let text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() { None } else { Some(text) }
+}
+
+/// Case-insensitive search across title, tag, block text and to-do text.
+pub fn matches(pad: &Pad, query: &str) -> bool {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() { return true; }
+    let hit = |s: &str| s.to_lowercase().contains(&q);
+    hit(&pad.title) || hit(&pad.tag) || hit(&pad.id)
+        || pad.blocks.iter().any(|b| b.text.as_deref().map(hit).unwrap_or(false)
+            || b.name.as_deref().map(hit).unwrap_or(false)
+            || b.url.as_deref().map(hit).unwrap_or(false)
+            || b.caption.as_deref().map(hit).unwrap_or(false)
+            || b.rows.as_ref().map(|r| r.iter().flatten().any(|c| hit(c))).unwrap_or(false))
+        || pad.todos.iter().any(|t| hit(&t.text))
+}
+
 /// The day a pad belongs to, for sorting and labels.
 pub fn parse_day(key: &str) -> Option<NaiveDate> { NaiveDate::parse_from_str(key, "%Y-%m-%d").ok() }
 
@@ -231,6 +257,19 @@ mod tests {
         assert_eq!(today.todos[0].text, "carry me");
         assert!(store.load(&today.id).unwrap().is_some());
         assert!(store.load("../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn title_and_search() {
+        assert_eq!(html_title("<html><head><TITLE>  Tauri &amp;\n  friends </title>"), Some("Tauri & friends".into()));
+        assert_eq!(html_title("<p>no title</p>"), None);
+        let mut pad = Pad::daily("2026-10-12", Utc::now());
+        pad.blocks.push(Block { id: "b".into(), kind: BlockKind::Table, x: 0, y: 0, w: 96, h: None, text: None,
+            rows: Some(vec![vec!["Item".into(), "Berlin".into()]]), asset: None, name: None, size: None, url: None, caption: None, language: None });
+        pad.todos.push(todo("Call Mum", TodoStatus::Open));
+        assert!(matches(&pad, "berlin"));
+        assert!(matches(&pad, "mum"));
+        assert!(!matches(&pad, "paris"));
     }
 
     #[test]

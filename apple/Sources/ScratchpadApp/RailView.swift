@@ -7,8 +7,8 @@ struct RailView: View {
     @State private var newTitle = ""
     @State private var askingNew = false
 
-    private var days: [Pad] { state.pads.filter { !$0.pinned } }
-    private var pinned: [Pad] { state.pads.filter { $0.pinned } }
+    private var days: [Pad] { state.filteredPads.filter { !$0.pinned } }
+    private var pinned: [Pad] { state.filteredPads.filter { $0.pinned } }
 
     var body: some View {
         List(selection: Binding(get: { state.current?.id }, set: { if let id = $0 { state.open(id) } })) {
@@ -24,9 +24,12 @@ struct RailView: View {
             Section {
                 HStack { Text("Carried over"); Spacer(); Text("\(state.current?.todos.filter { $0.carriedFrom != nil && $0.status != .done }.count ?? 0)").font(Fonts.mono(11)) }
                     .font(Fonts.ui(12)).foregroundStyle(p.muted)
+                HStack { Text("Store"); Spacer(); Text(state.usingICloud ? "iCloud" : "local").font(Fonts.mono(11)) }
+                    .font(Fonts.ui(12)).foregroundStyle(p.muted)
             }
         }
         .navigationTitle("Scratchpad")
+        .searchable(text: $state.searchText, prompt: "Search pads, blocks and to-dos")
         .scrollContentBackground(.hidden)
         .background(p.chrome)
         .alert("New pinned pad", isPresented: $askingNew) {

@@ -1,5 +1,8 @@
 # Scratchpad
 
+[![Apple](https://github.com/Caddickbrown/ScratchPad/actions/workflows/apple.yml/badge.svg)](https://github.com/Caddickbrown/ScratchPad/actions/workflows/apple.yml)
+[![Linux](https://github.com/Caddickbrown/ScratchPad/actions/workflows/linux.yml/badge.svg)](https://github.com/Caddickbrown/ScratchPad/actions/workflows/linux.yml)
+
 One pad per day: a dot grid you paste anything onto, with a to-do column at its side. Modelled on the paper desk pad.
 
 | Platform | Stack | Folder |
@@ -18,6 +21,9 @@ Design canvas (desktop light and dark, iPhone, components): https://claude.ai/ar
 - **To-dos cycle open, done, deferred.** Deferred is the paper's slashed circle. A row open for three days or more turns the overdue colour.
 - **Midnight rollover.** Opening today's pad for the first time copies open and deferred rows from the latest earlier pad, as open, keeping their original date. Done rows stay behind.
 - **Dark mode.** Follows the system, with a System / Light / Dark override (View menu on macOS, the half-circle button on Linux).
+- **Search** across every pad's title, tag, blocks and to-dos. Cmd-K / Ctrl-K, or the sidebar search field on Apple.
+- **Drag a to-do** by its circle to reorder it, or drop it on the dots to turn it into a text block.
+- **Link cards fetch their page title** after the paste; the URL stays until the page answers, and your own edit always wins.
 
 ## Storage
 
@@ -28,7 +34,7 @@ Both apps write the same layout, so one synced folder works for both:
 <root>/assets/<uuid>.ext  pasted images and files
 ```
 
-Apple: `~/Library/Application Support/Scratchpad` (sandboxed container path on macOS). Linux: `$XDG_DATA_HOME/com.caddickbrown.scratchpad`. Schema: `shared/schema/pad.schema.json`.
+Apple: the iCloud Drive container `iCloud.com.caddickbrown.scratchpad` (under Documents/Scratchpad, visible in Files) when the entitlement is granted and the user is signed in, otherwise `~/Library/Application Support/Scratchpad`. Linux: `$XDG_DATA_HOME/com.caddickbrown.scratchpad`. Schema: `shared/schema/pad.schema.json`.
 
 ## Apple
 
@@ -58,10 +64,13 @@ npm run dev                    # browser preview only: localStorage store, no fi
 
 Shortcuts: Ctrl-N new pad, Ctrl-Shift-T new to-do, Ctrl-Shift-V paste as block, Ctrl-D toggles the focused to-do.
 
+## CI
+
+- **Apple**: `swift test` for the core, then `xcodebuild` for macOS and the iOS simulator on a macOS runner.
+- **Linux**: front-end and Rust tests, then `tauri build`; the `.deb` and AppImage are uploaded as the `scratchpad-linux` artifact on every push to `master`.
+
 ## Not done yet
 
-- iCloud sync on Apple (the store is a plain folder, so pointing it at the iCloud container is the next step).
-- Search across pads.
-- Reordering to-dos by drag, and dragging a to-do onto the pad.
-- Link cards fetch no page title; the URL is the title until you edit it.
-- Xcode project generation and a device build have not been run from this environment, which has no Swift toolchain.
+- iCloud needs the container enabled on the App ID in the developer portal; until then the Apple app stays on the local folder.
+- Conflict handling when two devices edit the same pad offline. Last write wins today.
+- Link titles on Linux need outbound network from the app; there is no proxy setting yet.

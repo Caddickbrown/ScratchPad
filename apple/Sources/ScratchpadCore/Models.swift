@@ -90,6 +90,23 @@ public struct Pad: Codable, Identifiable, Equatable, Sendable {
         Pad(id: day, date: day, createdAt: now, updatedAt: now)
     }
 
+    /// Case-insensitive search across title, tag, id, block text and to-do text. Mirrors the Rust `matches`.
+    public func matches(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        if q.isEmpty { return true }
+        func hit(_ s: String?) -> Bool { s?.lowercased().contains(q) ?? false }
+        return hit(title) || hit(tag) || hit(id)
+            || blocks.contains { hit($0.text) || hit($0.name) || hit($0.url) || hit($0.caption) || ($0.rows?.contains { $0.contains(where: hit) } ?? false) }
+            || todos.contains { hit($0.text) }
+    }
+
+    /// Moves the to-do with `id` so it sits before `beforeID` (or at the end when nil).
+    public mutating func moveTodo(_ id: String, before beforeID: String?) {
+        guard id != beforeID, let moving = todos.first(where: { $0.id == id }) else { return }
+        todos.removeAll { $0.id == id }
+        if let b = beforeID, let i = todos.firstIndex(where: { $0.id == b }) { todos.insert(moving, at: i) } else { todos.append(moving) }
+    }
+
     public var doneCount: Int { todos.filter { $0.status == .done && !$0.text.isEmpty }.count }
     public var openCount: Int { todos.filter { $0.status == .open && !$0.text.isEmpty }.count }
     public var filledCount: Int { todos.filter { !$0.text.isEmpty }.count }

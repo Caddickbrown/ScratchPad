@@ -113,3 +113,23 @@ export function slugify(s: string): string {
   const slug = s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return slug || `pad-${uid().slice(0, 6)}`;
 }
+
+/** Case-insensitive search across title, tag, id, block text and to-do text. Mirrors the Rust `matches`. */
+export function matches(pad: Pad, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const hit = (s?: string | null) => !!s && s.toLowerCase().includes(q);
+  return hit(pad.title) || hit(pad.tag) || hit(pad.id)
+    || pad.blocks.some((b) => hit(b.text) || hit(b.name) || hit(b.url) || hit(b.caption) || (b.rows?.some((r) => r.some(hit)) ?? false))
+    || pad.todos.some((t) => hit(t.text));
+}
+
+/** Moves the to-do with `id` so it sits before `beforeId` (or at the end when null). */
+export function moveTodo(todos: Todo[], id: string, beforeId: string | null): Todo[] {
+  const moving = todos.find((t) => t.id === id);
+  if (!moving || id === beforeId) return todos;
+  const rest = todos.filter((t) => t.id !== id);
+  const i = beforeId ? rest.findIndex((t) => t.id === beforeId) : -1;
+  if (i < 0) return [...rest, moving];
+  return [...rest.slice(0, i), moving, ...rest.slice(i)];
+}
