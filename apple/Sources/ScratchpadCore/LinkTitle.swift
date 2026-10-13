@@ -1,11 +1,14 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Page title for a pasted link. Best effort: 5 s timeout, first 256 KB, http(s) only.
 public enum LinkTitle {
     public static func fetch(_ urlString: String) async -> String? {
         guard let url = URL(string: urlString), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return nil }
         var req = URLRequest(url: url, timeoutInterval: 5)
-        req.setValue("Scratchpad/0.1", forHTTPHeaderField: "User-Agent")
+        req.setValue("Scratchpad/0.2", forHTTPHeaderField: "User-Agent")
         guard let (data, _) = try? await URLSession.shared.data(for: req) else { return nil }
         let html = String(decoding: data.prefix(256 * 1024), as: UTF8.self)
         return parse(html)

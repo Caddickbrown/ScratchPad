@@ -2,19 +2,49 @@ import SwiftUI
 import Combine
 import ScratchpadCore
 
+/// A deleted block kept for the 8 s undo toast.
+struct DeletedBlock: Equatable {
+    var block: Block
+    var index: Int
+    var sheetID: String
+    var token = UUID()
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var pads: [Pad] = []
-    @Published var current: Pad? { didSet { scheduleSave() } }
+    /// The open sheet. Edits save after a short debounce; switching sheets does not touch updatedAt.
+    @Published var current: Pad? {
+        didSet {
+            if let o = oldValue, let n = current, o.id == n.id, o != n { dirty = true; scheduleSave() }
+        }
+    }
     @Published var selectedBlockID: String?
     @Published var showTodoSheet = false
     @Published var error: String?
-
-    private(set) var store: PadStore
     @Published var searchText = ""
     @Published var usingICloud = false
+
+    // Sheets
+    @Published var askingNewOnDate = false
+    @Published var askingPinned = false
+    @Published var showExport = false
+    @Published var showImport = false
+    @Published var showSettings = false
+    @Published var notice: String?
+    /// Set when a new sheet should focus its title; the header clears it.
+    @Published var focusTitlePending = false
+
+    // Blocks and to-dos
+    @Published var deleted: DeletedBlock?
+    @Published var justInserted: Set<String> = []
+    @Published var blankTodoID = UUID().uuidString
+    /// Sheet whose carried rows should hop in once.
+    @Published var hopSheetID: String?
+
+    private(set) var store: PadStore
     private var saveTask: Task<Void, Never>?
-    static let todoRows = 18
+    private var dirty = false
 
     init(store: PadStore) {
         self.store = store
@@ -41,131 +71,263 @@ final class AppState: ObservableObject {
         reload()
     }
 
+    var todayKey: String { DayKey.key(for: Date()) }
     var filteredPads: [Pad] { pads.filter { $0.matches(searchText) } }
-
-    func moveTodo(_ id: String, before: String?) { current?.moveTodo(id, before: before) }
-
-    /// Drops a to-do onto the pad as a text block and removes the row.
-    func todoToBlock(_ id: String, at point: CGPoint) {
-        guard let todo = current?.todos.first(where: { $0.id == id }), !todo.text.isEmpty else { return }
-        var b = Block(kind: .text, x: Int(point.x), y: Int(point.y), w: 408, text: todo.text)
-        b.snap()
-        current?.blocks.append(b)
-        current?.todos.removeAll { $0.id == id }
-        if let p = current { current = Self.padded(p) }
-    }
+    var datesWithSheets: Set<String> { Sidebar.datesWithSheets(pads) }
 
     func reload() {
         do {
             pads = try store.list()
             if current == nil { openToday() }
-        } catch { self.error = "\(error)" }
+        } catch { self.error = error.localizedDescription }
     }
 
+    private func refreshList() { pads = (try? store.list()) ?? pads }
+
+    // MARK: Sheets
+
+    /// Today on launch: the most recently updated sheet dated today, or a new one with carry-over.
     func openToday() {
         do {
-            var pad = try store.today()
-            pad = Self.padded(pad)
+            let hadToday = pads.contains { $0.date == todayKey }
+            let pad = try store.today()
             current = pad
-            pads = try store.list()
-        } catch { self.error = "\(error)" }
+            if !hadToday && pad.todos.contains(where: { $0.carriedFrom != nil }) { markHop(pad.id) }
+            refreshList()
+        } catch { self.error = error.localizedDescription }
     }
 
     func open(_ id: String) {
         guard current?.id != id else { return }
         flush()
-        if let pad = try? store.load(id) { current = Self.padded(pad) }
+        selectedBlockID = nil
+        if let pad = try? store.load(id) { current = pad }
     }
 
-    func newPinnedPad(title: String) {
-        let slug = title.lowercased().replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        let id = slug.isEmpty ? "pad-\(UUID().uuidString.prefix(6).lowercased())" : slug
-        let pad = Self.padded(Pad(id: id, date: nil, title: title, pinned: true))
-        try? store.save(pad)
-        reload()
-        current = pad
+    /// New sheet: dated today, inheriting the current sheet's tags, title focused.
+    func newSheetToday() { newSheet(on: todayKey) }
+
+    func newSheet(on day: String) {
+        flush()
+        do {
+            let hadDay = pads.contains { $0.date == day }
+            let pad = try store.create(date: day, tags: current?.tags ?? [])
+            refreshList()
+            selectedBlockID = nil
+            current = pad
+            if !hadDay && pad.todos.contains(where: { $0.carriedFrom != nil }) { markHop(pad.id) }
+            focusTitlePending = true
+        } catch { self.error = error.localizedDescription }
     }
 
-    /// Keeps the column at the paper's 18 rows: empty rows are display rows until typed in.
-    static func padded(_ pad: Pad) -> Pad {
-        var p = pad
-        while p.todos.count < todoRows { p.todos.append(Todo()) }
-        return p
+    func newPinnedSheet(title: String) {
+        flush()
+        do {
+            let pad = try store.createPinned(title: title, tags: current?.tags ?? [])
+            refreshList()
+            selectedBlockID = nil
+            current = pad
+        } catch { self.error = error.localizedDescription }
     }
 
-    // MARK: Todos
+    func duplicateCurrent() {
+        guard let pad = current else { return }
+        flush()
+        do {
+            let copy = try store.duplicate(pad)
+            refreshList()
+            selectedBlockID = nil
+            current = copy
+            focusTitlePending = true
+        } catch { self.error = error.localizedDescription }
+    }
+
+    /// Choosing a date moves the sheet; a pinned sheet given a date is unpinned.
+    func moveCurrent(to day: String) {
+        guard let pad = current, pad.date != day else { return }
+        saveTask?.cancel()
+        do {
+            let moved = try store.move(pad, to: day)
+            dirty = false
+            refreshList()
+            current = moved
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func markHop(_ id: String) {
+        hopSheetID = id
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            if self?.hopSheetID == id { self?.hopSheetID = nil }
+        }
+    }
+
+    // MARK: Tags
+
+    func addTag(_ raw: String) {
+        let t = Tags.normalize(raw)
+        guard !t.isEmpty, current?.tags.contains(t) == false else { return }
+        current?.tags.append(t)
+    }
+
+    func removeTag(_ t: String) { current?.tags.removeAll { $0 == t } }
+
+    func tagSuggestions(_ prefix: String) -> [(tag: String, count: Int)] {
+        Tags.suggestions(prefix: prefix, pads: pads, excluding: current?.tags ?? [])
+    }
+
+    // MARK: To-dos
+
+    /// Text for a row; the blank row (not yet in the sheet) becomes a real row on the first keystroke.
+    func setTodoText(_ id: String, _ text: String) {
+        if let i = current?.todos.firstIndex(where: { $0.id == id }) {
+            current?.todos[i].text = text
+        } else if id == blankTodoID, !text.isEmpty {
+            current?.todos.append(Todo(id: id, text: text))
+            blankTodoID = UUID().uuidString
+        }
+    }
 
     func cycle(_ id: String) {
         guard let i = current?.todos.firstIndex(where: { $0.id == id }) else { return }
         current?.todos[i].status = current!.todos[i].status.next
     }
 
-    func insertTodo(after id: String) {
-        guard let i = current?.todos.firstIndex(where: { $0.id == id }) else { return }
-        current?.todos.insert(Todo(), at: i + 1)
-    }
-
-    func removeTodoIfEmpty(_ id: String) {
-        guard let pad = current, pad.todos.count > Self.todoRows,
-              let i = pad.todos.firstIndex(where: { $0.id == id }), pad.todos[i].text.isEmpty else { return }
+    /// Empty rows go when they lose focus, so the column keeps exactly one blank row.
+    func dropTodoIfEmpty(_ id: String) {
+        guard let i = current?.todos.firstIndex(where: { $0.id == id }), current?.todos[i].text.isEmpty == true else { return }
         current?.todos.remove(at: i)
     }
 
-    func clearDone() {
-        current?.todos.removeAll { $0.status == .done }
-        if let p = current { current = Self.padded(p) }
+    func moveTodo(_ id: String, before: String?) {
+        current?.moveTodo(id, before: before == blankTodoID ? nil : before)
+    }
+
+    /// Writes the current view order into the file (used before a drag under a non-manual sort).
+    func commitTodoOrder(_ ordered: [Todo]) {
+        guard var pad = current else { return }
+        let ids = ordered.map(\.id)
+        let rest = pad.todos.filter { !ids.contains($0.id) }
+        pad.todos = ordered.filter { t in pad.todos.contains { $0.id == t.id } } + rest
+        current = pad
+    }
+
+    /// Drops a to-do onto the canvas as a text block and removes the row.
+    func todoToBlock(_ id: String, at point: CGPoint, font: BlockFont = .sans) {
+        guard let todo = current?.todos.first(where: { $0.id == id }), todo.isFilled else { return }
+        var b = Block(kind: .text, x: Int(point.x), y: Int(point.y), w: 408, text: todo.text, font: font)
+        b.snap()
+        current?.blocks.append(b)
+        current?.todos.removeAll { $0.id == id }
+        noteInserted(b.id)
+    }
+
+    /// Drop on a sheet row in the sidebar: the to-do moves to that sheet.
+    func moveTodo(_ id: String, toSheet sheetID: String) {
+        guard var pad = current, sheetID != pad.id, let todo = pad.todos.first(where: { $0.id == id }),
+              var target = try? store.load(sheetID) else { return }
+        target.todos.append(todo)
+        pad.todos.removeAll { $0.id == id }
+        do {
+            try store.save(target)
+            current = pad
+            flush()
+            refreshList()
+        } catch { self.error = error.localizedDescription }
     }
 
     // MARK: Blocks
 
-    func move(_ id: String, to point: CGPoint) {
-        guard let i = current?.blocks.firstIndex(where: { $0.id == id }) else { return }
-        current?.blocks[i].x = max(0, Block.snapped(Int(point.x)))
-        current?.blocks[i].y = max(0, Block.snapped(Int(point.y)))
-    }
-
-    func resize(_ id: String, width: CGFloat) {
-        guard let i = current?.blocks.firstIndex(where: { $0.id == id }) else { return }
-        current?.blocks[i].w = max(2 * gridSize, Block.snapped(Int(width)))
-    }
+    func block(_ id: String) -> Block? { current?.blocks.first { $0.id == id } }
 
     func update(_ block: Block) {
         guard let i = current?.blocks.firstIndex(where: { $0.id == block.id }) else { return }
         current?.blocks[i] = block
     }
 
-    func deleteBlock(_ id: String) {
-        current?.blocks.removeAll { $0.id == id }
-        if selectedBlockID == id { selectedBlockID = nil }
+    func mutate(_ id: String, _ change: (inout Block) -> Void) {
+        guard let i = current?.blocks.firstIndex(where: { $0.id == id }) else { return }
+        change(&current!.blocks[i])
     }
 
-    func insert(_ kind: BlockKind, at point: CGPoint? = nil) {
+    /// Move on release: snaps to the 24 px grid unless `snap` is false (Alt held).
+    func moveBlock(_ id: String, x: CGFloat, y: CGFloat, snap: Bool) {
+        mutate(id) { b in
+            b.x = max(0, snap ? Block.snapped(Int(x)) : Int(x.rounded()))
+            b.y = max(0, snap ? Block.snapped(Int(y)) : Int(y.rounded()))
+        }
+    }
+
+    func deleteBlock(_ id: String) {
+        guard let pad = current, let i = pad.blocks.firstIndex(where: { $0.id == id }) else { return }
+        deleted = DeletedBlock(block: pad.blocks[i], index: i, sheetID: pad.id)
+        current?.blocks.remove(at: i)
+        if selectedBlockID == id { selectedBlockID = nil }
+        let token = deleted?.token
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            if self?.deleted?.token == token { self?.deleted = nil }
+        }
+    }
+
+    /// Undo restores the block at the same index.
+    func undoDelete() {
+        guard let d = deleted, current?.id == d.sheetID else { deleted = nil; return }
+        let i = min(d.index, current?.blocks.count ?? 0)
+        current?.blocks.insert(d.block, at: i)
+        selectedBlockID = d.block.id
+        deleted = nil
+    }
+
+    func duplicateBlock(_ id: String) {
+        guard let b = block(id), let i = current?.blocks.firstIndex(where: { $0.id == id }) else { return }
+        let copy = b.duplicated()
+        current?.blocks.insert(copy, at: i + 1)
+        selectedBlockID = copy.id
+        noteInserted(copy.id)
+    }
+
+    func insert(_ kind: BlockKind, at point: CGPoint? = nil, font: BlockFont = .sans) {
         guard let pad = current else { return }
         let p = point.map { (x: Int($0.x), y: Int($0.y)) } ?? Placement.nextFreePoint(on: pad)
         var b: Block
         switch kind {
-        case .table: b = Block(kind: .table, x: p.x, y: p.y, w: 360, rows: [["", ""], ["", ""]])
+        case .table: b = Block(kind: .table, x: p.x, y: p.y, w: 240, rows: [["", ""], ["", ""]], colWidths: [120, 120])
         case .divider: b = Block(kind: .divider, x: p.x, y: p.y, w: 408)
-        case .code: b = Block(kind: .code, x: p.x, y: p.y, w: 408, text: "")
+        case .code: b = Block(kind: .code, x: p.x, y: p.y, w: 408, text: "", font: .mono)
         case .link: b = Block(kind: .link, x: p.x, y: p.y, w: 300, text: "", url: "")
-        default: b = Block(kind: .text, x: p.x, y: p.y, w: 408, text: "")
+        default: b = Block(kind: .text, x: p.x, y: p.y, w: 408, text: "", font: font)
         }
         b.snap()
         current?.blocks.append(b)
         selectedBlockID = b.id
+        noteInserted(b.id)
     }
 
-    func paste(_ contents: ClipboardContents, at point: CGPoint? = nil) {
+    func paste(_ contents: ClipboardContents, at point: CGPoint? = nil, font: BlockFont = .sans) {
         guard let pad = current else { return }
         var at = point.map { (x: Int($0.x), y: Int($0.y)) } ?? Placement.nextFreePoint(on: pad)
         for result in PasteClassifier.classify(contents) {
             do {
-                let b = try Placement.block(from: result, at: at, store: store)
+                var b = try Placement.block(from: result, at: at, store: store)
+                if b.kind == .text { b.font = font }
+                if b.kind == .table, let cols = b.rows?.first?.count, cols > 0 {
+                    b.colWidths = Array(repeating: max(TableLayout.minColumn, b.w / cols), count: cols)
+                }
                 current?.blocks.append(b)
                 selectedBlockID = b.id
+                noteInserted(b.id)
                 if case .link(let url, nil) = result { titleLater(blockID: b.id, url: url) }
                 at.y += (b.h ?? 160) + gridSize
-            } catch { self.error = "\(error)" }
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    private func noteInserted(_ id: String) {
+        justInserted.insert(id)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            self?.justInserted.remove(id)
         }
     }
 
@@ -176,6 +338,21 @@ final class AppState: ObservableObject {
                   let i = current?.blocks.firstIndex(where: { $0.id == blockID }), current?.blocks[i].text == url else { return }
             current?.blocks[i].text = title
         }
+    }
+
+    // MARK: Import
+
+    func importArchive(from url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            flush()
+            let archive = try ScratchpadArchive.decode(Data(contentsOf: url))
+            let result = try archive.importInto(store)
+            refreshList()
+            if let id = current?.id, let fresh = try store.load(id) { current = fresh }
+            notice = "Imported \(result.sheets) sheet\(result.sheets == 1 ? "" : "s")" + (result.assetsWritten > 0 ? " and \(result.assetsWritten) file\(result.assetsWritten == 1 ? "" : "s")" : "")
+        } catch { self.error = error.localizedDescription }
     }
 
     // MARK: Saving
@@ -190,10 +367,12 @@ final class AppState: ObservableObject {
     }
 
     func flush() {
-        guard let pad = current else { return }
+        saveTask?.cancel()
+        guard dirty, let pad = current else { return }
+        dirty = false
         do {
-            try store.save(pad)
-            if let i = pads.firstIndex(where: { $0.id == pad.id }) { pads[i] = pad } else { pads = (try? store.list()) ?? pads }
-        } catch { self.error = "\(error)" }
+            let saved = try store.save(pad)
+            if let i = pads.firstIndex(where: { $0.id == saved.id }) { pads[i] = saved } else { refreshList() }
+        } catch { self.error = error.localizedDescription }
     }
 }

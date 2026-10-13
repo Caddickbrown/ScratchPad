@@ -1,70 +1,114 @@
 import SwiftUI
 import ScratchpadCore
 
+/// Sidebar: By day / By tag, tag sort, pinned section at the bottom. A to-do dropped on a row moves to that sheet.
 struct RailView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
-    @State private var newTitle = ""
-    @State private var askingNew = false
+    @AppStorage(SettingsKey.sidebarMode) private var mode: SidebarMode = .byDay
+    @AppStorage(SettingsKey.tagSort) private var tagSort: TagSort = .alphabetical
 
-    private var days: [Pad] { state.filteredPads.filter { !$0.pinned } }
-    private var pinned: [Pad] { state.filteredPads.filter { $0.pinned } }
+    private var visible: [Pad] { state.filteredPads }
+    private var groups: [SheetGroup] {
+        mode == .byDay ? Sidebar.byDay(visible, today: state.todayKey) : Sidebar.byTag(visible, sort: tagSort)
+    }
+    private var pinned: [Pad] { Sidebar.pinned(visible) }
 
     var body: some View {
         List(selection: Binding(get: { state.current?.id }, set: { if let id = $0 { state.open(id) } })) {
-            Section("Days") {
-                ForEach(days) { pad in
-                    row(pad, label: dayLabel(pad), trailing: shortDate(pad))
+            ForEach(groups) { group in
+                Section {
+                    ForEach(group.sheets) { pad in row(pad, groupID: group.id) }
+                } header: {
+                    HStack {
+                        Text(group.label)
+                        Spacer()
+                        Text(group.detail).font(Fonts.mono(10)).foregroundStyle(p.muted)
+                    }
                 }
             }
             Section("Pinned") {
-                ForEach(pinned) { pad in row(pad, label: pad.title.isEmpty ? pad.id : pad.title, trailing: "") }
-                Button { askingNew = true } label: { Label("New pinned pad", systemImage: "pin") }.foregroundStyle(p.accent)
+                ForEach(pinned) { pad in row(pad, groupID: "pinned") }
+                Button { state.askingPinned = true } label: { Label("New pinned sheet", systemImage: "pin") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(p.accent)
             }
             Section {
-                HStack { Text("Carried over"); Spacer(); Text("\(state.current?.todos.filter { $0.carriedFrom != nil && $0.status != .done }.count ?? 0)").font(Fonts.mono(11)) }
+                HStack { Text("Carried over"); Spacer(); Text("\(state.current?.todos.filter { $0.carriedFrom != nil && $0.status != .done && $0.isFilled }.count ?? 0)").font(Fonts.mono(11)) }
                     .font(Fonts.ui(12)).foregroundStyle(p.muted)
                 HStack { Text("Store"); Spacer(); Text(state.usingICloud ? "iCloud" : "local").font(Fonts.mono(11)) }
                     .font(Fonts.ui(12)).foregroundStyle(p.muted)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) { controls }
         .navigationTitle("Scratchpad")
-        .searchable(text: $state.searchText, prompt: "Search pads, blocks and to-dos")
+        .searchable(text: $state.searchText, prompt: "Search sheets, blocks and to-dos")
         .scrollContentBackground(.hidden)
         .background(p.chrome)
-        .alert("New pinned pad", isPresented: $askingNew) {
-            TextField("Title", text: $newTitle)
-            Button("Create") { state.newPinnedPad(title: newTitle); newTitle = "" }
-            Button("Cancel", role: .cancel) {}
+    }
+
+    private var controls: some View {
+        HStack(spacing: 8) {
+            Picker("Group", selection: $mode) {
+                ForEach(SidebarMode.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            if mode == .byTag {
+                Menu {
+                    Picker("Sort tags", selection: $tagSort) {
+                        ForEach(TagSort.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+                .fixedSize()
+                .accessibilityLabel("Sort tags")
+                .help("Sort tags: \(tagSort.label)")
+            }
         }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(p.chrome)
     }
 
     @ViewBuilder
-    private func row(_ pad: Pad, label: String, trailing: String) -> some View {
+    private func row(_ pad: Pad, groupID: String) -> some View {
         #if os(iOS)
-        NavigationLink(value: pad.id) { rowBody(label: label, trailing: trailing) }.tag(pad.id)
+        NavigationLink(value: pad.id) { SheetRow(pad: pad) }.tag(pad.id)
         #else
-        rowBody(label: label, trailing: trailing).tag(pad.id)
+        SheetRow(pad: pad).tag(pad.id)
         #endif
     }
+}
 
-    private func rowBody(label: String, trailing: String) -> some View {
-        HStack {
-            Text(label).font(Fonts.ui(14, .medium)).foregroundStyle(p.ink)
-            Spacer()
-            Text(trailing).font(Fonts.mono(11)).foregroundStyle(p.muted)
+struct SheetRow: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.palette) var p
+    let pad: Pad
+    @State private var targeted = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(pad.displayTitle)
+                .font(Fonts.ui(13, .medium))
+                .foregroundStyle(pad.title.isEmpty ? p.muted : p.ink)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            if let tag = pad.tags.first {
+                Text("#\(tag)").font(Fonts.mono(10)).foregroundStyle(p.muted).lineLimit(1)
+            }
         }
-    }
-
-    private func dayLabel(_ pad: Pad) -> String {
-        guard let key = pad.date, let d = DayKey.date(from: key) else { return pad.id }
-        if Calendar.current.isDateInToday(d) { return "Today" }
-        if Calendar.current.isDateInYesterday(d) { return "Yesterday" }
-        return d.formatted(.dateTime.weekday(.wide))
-    }
-
-    private func shortDate(_ pad: Pad) -> String {
-        guard let key = pad.date, let d = DayKey.date(from: key) else { return "" }
-        return d.formatted(.dateTime.day().month(.abbreviated))
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .overlay { if targeted { RoundedRectangle(cornerRadius: 4).stroke(p.accent, lineWidth: 1.5).padding(-3) } }
+        .dropDestination(for: String.self) { items, _ in
+            guard let id = items.compactMap(TodoDrag.id).first else { return false }
+            state.moveTodo(id, toSheet: pad.id)
+            return true
+        } isTargeted: { targeted = $0 }
+        .contextMenu {
+            Button("Open") { state.open(pad.id) }
+        }
     }
 }

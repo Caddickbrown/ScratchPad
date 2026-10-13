@@ -23,6 +23,7 @@ describe("markdown", () => {
     expect(tableMarkdown([["A", "B|C"], ["1", "=A2*2"]])).toBe("| A | B\\|C |\n| --- | --- |\n| 1 | 2 |");
   });
   it("renders a whole sheet in reading order", () => {
+    expect(everythingMarkdown([s({ tags: ["work", "q4"] })])).toContain("_Mon 12 Oct 2026 · #work #q4_");
     const md = everythingMarkdown([s({ tags: ["work"], todos: [t("Ship it", "open")], blocks: [
       { id: "2", kind: "link", x: 0, y: 200, w: 10, url: "https://tauri.app", text: "Tauri" },
       { id: "1", kind: "text", x: 0, y: 0, w: 10, text: "Hello" },

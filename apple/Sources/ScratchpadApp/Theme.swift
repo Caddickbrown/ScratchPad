@@ -1,4 +1,5 @@
 import SwiftUI
+import ScratchpadCore
 
 /// Tokens from the Components board, with the dark set from the dark board.
 struct Palette {
@@ -41,11 +42,53 @@ extension Color {
 enum Fonts {
     static func ui(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font { .system(size: size, weight: weight) }
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font { .system(size: size, weight: weight, design: .monospaced) }
+
+    /// Block fonts: Sans = SF, Serif = New York, Mono = SF Mono, Hand = Bradley Hand (with fallbacks).
+    static func block(_ family: BlockFont, size: CGFloat, bold: Bool = false, italic: Bool = false) -> Font {
+        var font: Font
+        switch family {
+        case .sans: font = .system(size: size)
+        case .serif: font = .system(size: size, design: .serif)
+        case .mono: font = .system(size: size, design: .monospaced)
+        case .hand: font = hand(size)
+        }
+        if bold { font = font.bold() }
+        if italic { font = font.italic() }
+        return font
+    }
+
+    static func block(_ b: Block) -> Font { block(b.font, size: CGFloat(b.fontSize), bold: b.bold, italic: b.italic) }
+
+    /// Bradley Hand ships with macOS and iOS; fall back to Noteworthy, then italic New York.
+    static func hand(_ size: CGFloat) -> Font {
+        for name in handNames where fontExists(name, size) { return .custom(name, size: size) }
+        return .system(size: size, design: .serif).italic()
+    }
+
+    static let handNames = ["BradleyHandITCTT-Bold", "Noteworthy-Light"]
+
+    static func fontExists(_ name: String, _ size: CGFloat) -> Bool {
+        #if os(macOS)
+        return NSFont(name: name, size: size) != nil
+        #else
+        return UIFont(name: name, size: size) != nil
+        #endif
+    }
 }
 
-/// Picks the palette from the resolved color scheme and injects it, so every view reads `@Environment(\.palette)`.
+/// Picks the palette from the resolved color scheme and injects it, along with the effective motion level,
+/// so every view reads `@Environment(\.palette)` and `@Environment(\.motion)`.
 struct Themed<Content: View>: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(SettingsKey.whimsy) private var whimsy: WhimsyLevel = .full
     let content: () -> Content
-    var body: some View { content().environment(\.palette, Palette.forScheme(scheme)) }
+
+    var body: some View {
+        let motion = Motion(level: reduceMotion ? .off : whimsy)
+        content()
+            .environment(\.palette, Palette.forScheme(scheme))
+            .environment(\.motion, motion)
+            .animation(motion.isOff ? nil : .easeInOut(duration: 0.36), value: scheme)
+    }
 }

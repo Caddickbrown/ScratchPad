@@ -34,7 +34,7 @@ export function tableMarkdown(rows: string[][]): string {
 }
 
 export function sheetMarkdown(p: Pad): string {
-  const out: string[] = [`# ${sheetTitle(p)}`, "", `_${[longDate(p.date), ...p.tags.map((t) => `#${t}`)].join(" · ")}_`];
+  const out: string[] = [`# ${sheetTitle(p)}`, "", `_${longDate(p.date)}${p.tags.length ? ` · ${p.tags.map((t) => `#${t}`).join(" ")}` : ""}_`];
   for (const b of p.blocks.slice().sort((a, b) => a.y - b.y || a.x - b.x)) {
     out.push("");
     switch (b.kind) {
