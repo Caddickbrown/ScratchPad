@@ -2,51 +2,227 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://scratchpad.app/schema/pad.json",
   "title": "Pad",
-  "description": "One Scratchpad pad: a dated (or pinned) dot-grid page of freeform blocks plus a to-do column. Shared by the Swift (iOS/macOS) and Tauri (Linux) apps. Stored as one JSON file per pad; assets live beside it under assets/.",
+  "description": "One Scratchpad sheet (v2): a dated or pinned dot-grid page of freeform blocks plus a to-do column. Shared by the Swift and Tauri apps. One JSON file per sheet; assets live under assets/. Readers accept v1 (single `tag`). See docs/v0.2-spec.md.",
   "type": "object",
-  "required": ["v", "id", "title", "tag", "pinned", "createdAt", "updatedAt", "blocks", "todos"],
+  "required": [
+    "v",
+    "id",
+    "title",
+    "tags",
+    "pinned",
+    "createdAt",
+    "updatedAt",
+    "blocks",
+    "todos"
+  ],
   "properties": {
-    "v": { "const": 1 },
-    "id": { "type": "string", "description": "YYYY-MM-DD for a daily pad, otherwise a slug for a pinned pad." },
-    "date": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Null for pinned pads." },
-    "title": { "type": "string" },
-    "tag": { "type": "string", "description": "One tag, no leading #." },
-    "pinned": { "type": "boolean" },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "updatedAt": { "type": "string", "format": "date-time" },
-    "blocks": { "type": "array", "items": { "$ref": "#/$defs/block" } },
-    "todos": { "type": "array", "items": { "$ref": "#/$defs/todo" } }
+    "v": {
+      "enum": [
+        1,
+        2
+      ],
+      "description": "Writers always write 2."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,80}$",
+      "description": "YYYY-MM-DD-xxxxxx for dated sheets, a slug for pinned ones. v1 ids (YYYY-MM-DD) remain valid."
+    },
+    "date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Null for pinned pads."
+    },
+    "title": {
+      "type": "string"
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/block"
+      }
+    },
+    "todos": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/todo"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]*$"
+      },
+      "uniqueItems": true
+    }
   },
   "$defs": {
     "block": {
       "type": "object",
-      "required": ["id", "kind", "x", "y", "w"],
+      "required": [
+        "id",
+        "kind",
+        "x",
+        "y",
+        "w"
+      ],
       "properties": {
-        "id": { "type": "string" },
-        "kind": { "enum": ["text", "table", "image", "file", "link", "code", "divider"] },
-        "x": { "type": "integer", "description": "Grid-snapped px from the pad's left edge." },
-        "y": { "type": "integer" },
-        "w": { "type": "integer", "minimum": 48 },
-        "h": { "type": ["integer", "null"], "description": "Null means content height." },
-        "text": { "type": "string", "description": "text, code: body. link: title." },
-        "rows": { "type": "array", "items": { "type": "array", "items": { "type": "string" } }, "description": "table: first row is the header." },
-        "asset": { "type": "string", "description": "image, file: path relative to the store root, e.g. assets/3f2a.png" },
-        "name": { "type": "string", "description": "file: display name." },
-        "size": { "type": "integer", "description": "file: bytes." },
-        "url": { "type": "string", "description": "link: href." },
-        "caption": { "type": "string" },
-        "language": { "type": "string", "description": "code: hint only." }
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "text",
+            "table",
+            "image",
+            "file",
+            "link",
+            "code",
+            "divider"
+          ]
+        },
+        "x": {
+          "type": "integer",
+          "description": "Grid-snapped px from the pad's left edge."
+        },
+        "y": {
+          "type": "integer"
+        },
+        "w": {
+          "type": "integer",
+          "minimum": 48
+        },
+        "h": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Null means content height. Set by a corner resize."
+        },
+        "text": {
+          "type": "string",
+          "description": "text, code: body. link: title."
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "table: first row is the header. A cell starting with = is a formula (docs/v0.2-spec.md section 4)."
+        },
+        "asset": {
+          "type": "string",
+          "description": "image, file: path relative to the store root, e.g. assets/3f2a.png"
+        },
+        "name": {
+          "type": "string",
+          "description": "file: display name."
+        },
+        "size": {
+          "type": "integer",
+          "description": "file: bytes."
+        },
+        "url": {
+          "type": "string",
+          "description": "link: href."
+        },
+        "caption": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string",
+          "description": "code: hint only."
+        },
+        "rotation": {
+          "type": "number",
+          "default": 0,
+          "description": "Degrees, normalised to (-180, 180]."
+        },
+        "font": {
+          "enum": [
+            "sans",
+            "serif",
+            "mono",
+            "hand"
+          ],
+          "default": "sans"
+        },
+        "fontSize": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 48,
+          "default": 14
+        },
+        "bold": {
+          "type": "boolean",
+          "default": false
+        },
+        "italic": {
+          "type": "boolean",
+          "default": false
+        },
+        "colWidths": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 40
+          },
+          "description": "table: px per column."
+        }
       }
     },
     "todo": {
       "type": "object",
-      "required": ["id", "text", "status", "createdAt"],
+      "required": [
+        "id",
+        "text",
+        "status",
+        "createdAt"
+      ],
       "properties": {
-        "id": { "type": "string" },
-        "text": { "type": "string" },
-        "status": { "enum": ["open", "done", "deferred"] },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Survives rollover, so age (overdue after 3 days) is measured from the original entry." },
-        "carriedFrom": { "type": ["string", "null"], "description": "Pad id the row was copied from at rollover." }
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "done",
+            "deferred"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Survives rollover, so age (overdue after 3 days) is measured from the original entry."
+        },
+        "carriedFrom": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Pad id the row was copied from at rollover."
+        }
       }
     }
   }

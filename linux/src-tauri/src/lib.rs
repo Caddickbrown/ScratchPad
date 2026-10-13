@@ -1,5 +1,5 @@
 use base64::Engine;
-use scratchpad_store::{Pad, Store};
+use scratchpad_store::{Archive, ImportSummary, Pad, Store};
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -76,6 +76,20 @@ async fn fetch_title(url: String) -> Result<Option<String>, String> {
     }).await.map_err(err)?
 }
 
+/// Every sheet (or one tag's) plus its assets as a `.scratchpad` archive JSON string. The page writes it via the save dialog.
+#[tauri::command]
+fn archive_json(store: State<AppStore>, tag: Option<String>) -> Result<String, String> {
+    let archive = store.0.lock().unwrap().archive(tag.as_deref()).map_err(err)?;
+    serde_json::to_string(&archive).map_err(err)
+}
+
+/// Merge an archive the page read from a file the user picked.
+#[tauri::command]
+fn import_archive_json(store: State<AppStore>, json: String) -> Result<ImportSummary, String> {
+    let archive: Archive = serde_json::from_str(&json).map_err(|_| "That file is not a Scratchpad archive".to_string())?;
+    store.0.lock().unwrap().import_archive(archive).map_err(err)
+}
+
 #[tauri::command]
 fn store_root(store: State<AppStore>) -> String {
     store.0.lock().unwrap().root.to_string_lossy().to_string()
@@ -84,6 +98,8 @@ fn store_root(store: State<AppStore>) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let root = app.path().app_data_dir()?;
             let store = Store::open(root)?;
@@ -92,7 +108,7 @@ pub fn run() {
             app.manage(AppStore(Mutex::new(store)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_pads, load_pad, today_pad, save_pad, delete_pad, store_asset, import_file, asset_path, store_root, debug_log, fetch_title])
+        .invoke_handler(tauri::generate_handler![list_pads, load_pad, today_pad, save_pad, delete_pad, store_asset, import_file, asset_path, store_root, debug_log, fetch_title, archive_json, import_archive_json])
         .run(tauri::generate_context!())
         .expect("error while running scratchpad");
 }

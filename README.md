@@ -15,22 +15,25 @@ Design canvas (desktop light and dark, iPhone, components): https://claude.ai/ar
 
 ## How it behaves
 
-- **A pad is a day.** The rail lists days. Pinned pads are the few undated ones.
-- **Paste decides the block.** Image data becomes an image block, an HTML or tab-separated table becomes a table, a file becomes a file chip, a bare URL becomes a link card, fenced text becomes code, everything else is text. Same classifier on both platforms, with the same tests.
-- **Blocks sit on a 24 px grid.** Drag anywhere on a block to move it, drag its right edge to resize, double-click the dots to start a text block, right-click the dots (or type `/` in an empty text block) for the insert menu.
-- **To-dos cycle open, done, deferred.** Deferred is the paper's slashed circle. A row open for three days or more turns the overdue colour.
-- **Midnight rollover.** Opening today's pad for the first time copies open and deferred rows from the latest earlier pad, as open, keeping their original date. Done rows stay behind.
-- **Dark mode.** Follows the system, with a System / Light / Dark override (View menu on macOS, the half-circle button on Linux).
-- **Search** across every pad's title, tag, blocks and to-dos. Cmd-K / Ctrl-K, or the sidebar search field on Apple.
-- **Drag a to-do** by its circle to reorder it, or drop it on the dots to turn it into a text block.
-- **Link cards fetch their page title** after the paste; the URL stays until the page answers, and your own edit always wins.
+Full behaviour spec: `docs/v0.2-spec.md`. Design canvas: https://claude.ai/artifact/Lr6cgFti87ULk2zK8U9G8d
+
+- **Sheets, several a day.** New sheet (Ctrl/Cmd-N) always makes one, dated today, with the current tags. Its menu adds New sheet on a date, New pinned sheet and Duplicate.
+- **By day or by tag.** The sidebar groups sheets by day, or by tag sorted A to Z, by count or by recent use. A sheet can carry several tags.
+- **Date picker** on the DATE box. Days with sheets show a dot, and you can type `fri`, `15 oct` or `+3`.
+- **Paste decides the block**: image, file, HTML or tab-separated table, bare URL, fenced code, else text.
+- **Blocks**: drag the edge to move, drag a corner to resize (Shift keeps the ratio), rotate from the toolbar, pick a font (Sans, Serif, Mono, Hand), duplicate, delete with an 8 second undo.
+- **Tables**: per-column widths (drag or double-click the line between letters), and formulas with `+ - * /`, cell references, and SUM, AVG, MIN, MAX and COUNT.
+- **To-dos**: live count, a grip to drag rows (reorder, drop on the sheet, or drop on another sheet), and sorting by Manual, Open first, Overdue first, A to Z or Oldest first, with "Done sinks to the bottom". Unfinished rows carry over to the next day's first sheet.
+- **Export** (Ctrl/Cmd-E): the sheet as a PNG in light or dark, to-dos as Markdown checkboxes, or everything as one `.scratchpad` archive, Markdown or JSON file. Import archives from Settings.
+- **Whimsy**: ticks pop and spray ink, clearing the list stamps it ALL CLEAR, and new sheets tear off like the paper pad. Settings has Full, Subtle and Off, and the system's Reduce motion turns it off.
+- **Dark mode**: follows the system, with a System, Light or Dark override.
 
 ## Storage
 
 Both apps write the same layout, so one synced folder works for both:
 
 ```
-<root>/pads/<id>.json     id = YYYY-MM-DD for daily pads, a slug for pinned pads
+<root>/pads/<id>.json     id = YYYY-MM-DD-xxxxxx for dated sheets, a slug for pinned ones (v0.1 ids still load)
 <root>/assets/<uuid>.ext  pasted images and files
 ```
 
@@ -46,7 +49,7 @@ xcodegen generate          # writes Scratchpad.xcodeproj (gitignored)
 open Scratchpad.xcodeproj  # one multiplatform target: My Mac, iPhone, iPad
 ```
 
-Shortcuts: Cmd-N new pad, Cmd-Shift-T new to-do, Cmd-Shift-V paste as block (Cmd-V on the canvas also works), Return in a to-do adds the next row.
+Shortcuts: Cmd-N new sheet, Cmd-K search, Cmd-E export, Cmd-Shift-V paste as block (Cmd-V on the canvas also works), Return in a to-do adds the next row.
 
 ## Linux
 
@@ -62,7 +65,7 @@ npm run tauri build            # .deb and AppImage under src-tauri/target/releas
 npm run dev                    # browser preview only: localStorage store, no file import
 ```
 
-Shortcuts: Ctrl-N new pad, Ctrl-Shift-T new to-do, Ctrl-Shift-V paste as block, Ctrl-D toggles the focused to-do.
+Shortcuts: Ctrl-N new sheet, Ctrl-K search, Ctrl-E export, Ctrl-Shift-T new to-do, Ctrl-Shift-V paste as block, Ctrl-D duplicates the selected block or cycles the focused to-do, Delete removes the selected block, Alt-Up/Down moves a to-do.
 
 ## CI
 
@@ -72,5 +75,5 @@ Shortcuts: Ctrl-N new pad, Ctrl-Shift-T new to-do, Ctrl-Shift-V paste as block, 
 ## Not done yet
 
 - iCloud needs the container enabled on the App ID in the developer portal; until then the Apple app stays on the local folder.
-- Conflict handling when two devices edit the same pad offline. Last write wins today.
-- Link titles on Linux need outbound network from the app; there is no proxy setting yet.
+- Conflict handling when two devices edit the same sheet offline. Last write wins today.
+- Formulas are deliberately basic: no cross-table references, no text functions.

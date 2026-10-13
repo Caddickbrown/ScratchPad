@@ -1,0 +1,122 @@
+{
+  "v": 2,
+  "id": "2026-10-12-a1b2c3",
+  "date": "2026-10-12",
+  "title": "Sprint planning, odds and ends",
+  "pinned": false,
+  "createdAt": "2026-10-12T08:02:11Z",
+  "updatedAt": "2026-10-12T09:14:40Z",
+  "blocks": [
+    {
+      "id": "b1",
+      "kind": "text",
+      "x": 24,
+      "y": 24,
+      "w": 408,
+      "h": null,
+      "text": "Standup\nSync engine: CloudKit on Apple, SQLite plus file watcher on Linux. Same block JSON either side.\nPaste handling is the whole product."
+    },
+    {
+      "id": "b2",
+      "kind": "table",
+      "x": 24,
+      "y": 216,
+      "w": 456,
+      "h": null,
+      "caption": "Release 0.3",
+      "rows": [
+        [
+          "Item",
+          "Est (h)",
+          "Spent (h)"
+        ],
+        [
+          "Block toolbar",
+          "6",
+          "5"
+        ],
+        [
+          "Table formulas",
+          "8",
+          "3"
+        ],
+        [
+          "Export dialog",
+          "5",
+          "0"
+        ],
+        [
+          "Total",
+          "=SUM(B2:B4)",
+          "=SUM(C2:C4)"
+        ]
+      ],
+      "colWidths": [
+        220,
+        104,
+        104
+      ]
+    },
+    {
+      "id": "b3",
+      "kind": "file",
+      "x": 528,
+      "y": 264,
+      "w": 300,
+      "h": null,
+      "asset": "assets/q4-roadmap.pdf",
+      "name": "Q4-roadmap.pdf",
+      "size": 1258291,
+      "rotation": -3
+    },
+    {
+      "id": "b4",
+      "kind": "link",
+      "x": 528,
+      "y": 336,
+      "w": 300,
+      "h": null,
+      "url": "https://tauri.app",
+      "text": "Tauri v2 window customisation"
+    },
+    {
+      "id": "b5",
+      "kind": "text",
+      "x": 528,
+      "y": 192,
+      "w": 240,
+      "h": null,
+      "text": "Ask Priya about Q4 dates before Friday",
+      "font": "hand",
+      "fontSize": 24,
+      "rotation": 2.5
+    }
+  ],
+  "todos": [
+    {
+      "id": "t1",
+      "text": "Reply to Priya re: contract",
+      "status": "done",
+      "createdAt": "2026-10-11T10:00:00Z",
+      "carriedFrom": "2026-10-11"
+    },
+    {
+      "id": "t2",
+      "text": "Draft release notes 0.3",
+      "status": "open",
+      "createdAt": "2026-10-12T08:05:00Z",
+      "carriedFrom": null
+    },
+    {
+      "id": "t3",
+      "text": "Renew passport",
+      "status": "deferred",
+      "createdAt": "2026-10-08T09:00:00Z",
+      "carriedFrom": "2026-10-11"
+    }
+  ],
+  "tags": [
+    "work",
+    "q4"
+  ]
+}
