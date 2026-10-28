@@ -7,7 +7,7 @@ One pad per day: a dot grid you paste anything onto, with a to-do column at its 
 
 | Platform | Stack | Folder |
 |---|---|---|
-| macOS 14+, iOS 18+ | SwiftUI, Swift Package for the core | `apple/` |
+| macOS 15+, iOS 18+ | SwiftUI, Swift Package for the core | `apple/` |
 | Linux | Tauri 2, Rust store, vanilla TypeScript front end | `linux/` |
 | Both | JSON pad format and sample | `shared/` |
 

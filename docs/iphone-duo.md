@@ -23,7 +23,7 @@ scene, inside `#if os(macOS)`.
 
 ## Through a fold
 
-The app targets iOS 18 (macOS 14), so everything below holds on every supported iOS.
+The app targets iOS 18 and macOS 15, so everything below holds on every supported system.
 
 - **The open sheet**: folding pushes it onto the phone stack (`phonePath`); unfolding
   shows it in the split view. The to-do slide-over and the phone's to-do sheet share
@@ -38,7 +38,6 @@ The app targets iOS 18 (macOS 14), so everything below holds on every supported 
 - **Scroll**: the canvas offset per sheet (`ScrollPosition`, `AppState.canvasOffset`);
   the to-do list by its top row (`scrollPosition(id:)`, `todoTopRow`); the rail by its
   top visible row (`ScrollViewReader`, `railTopRow`), to the row, not the point.
-- On macOS 14 (unchanged target) the caret position and canvas scroll don't return.
 
 ## Waits on the iOS 27.1 SDK / a device
 

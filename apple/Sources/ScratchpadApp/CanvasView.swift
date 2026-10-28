@@ -603,18 +603,13 @@ struct Squiggle: Shape {
 
 /// Keeps the canvas's scroll offset in `AppState.canvasOffset`, so a fold or unfold (which rebuilds
 /// the sheet in the other layout) lands on the same part of the sheet. Uses `ScrollPosition`
-/// and `onScrollGeometryChange` (every supported iOS; on macOS 14 the canvas starts at the top left).
+/// and `onScrollGeometryChange`.
 struct KeepsCanvasScroll: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(macOS 15, *) {
-            content.modifier(CanvasScrollKeeper())
-        } else {
-            content
-        }
+        content.modifier(CanvasScrollKeeper())
     }
 }
 
-@available(macOS 15, *)
 private struct CanvasScrollKeeper: ViewModifier {
     @EnvironmentObject var state: AppState
     @State private var position = ScrollPosition()

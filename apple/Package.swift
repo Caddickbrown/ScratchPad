@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ScratchpadCore",
-    platforms: [.iOS("18.0"), .macOS(.v14)],
+    platforms: [.iOS("18.0"), .macOS("15.0")],
     products: [
         .library(name: "ScratchpadCore", targets: ["ScratchpadCore"])
     ],

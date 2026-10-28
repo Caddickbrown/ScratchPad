@@ -52,28 +52,21 @@ struct CodeBlock: View {
 
 /// A block's TextEditor that keeps its focus and caret in `AppState.caret`, so folding or
 /// unfolding mid-sentence (the sheet is rebuilt in the other layout) leaves the caret where it was.
-/// The caret position uses `TextEditor(text:selection:)` (every supported iOS; macOS 15+, on
-/// macOS 14 only the focus comes back).
+/// The caret position uses `TextEditor(text:selection:)`.
 struct BlockTextEditor: View {
     let blockID: String
     @Binding var text: String
     @FocusState private var focused: Bool
 
     var body: some View {
-        Group {
-            if #available(macOS 15, *) {
-                SelectionKeeper(field: blockID, text: text) { TextEditor(text: $text, selection: $0) }
-            } else {
-                TextEditor(text: $text)
-            }
-        }
-        .focused($focused)
+        SelectionKeeper(field: blockID, text: text) { TextEditor(text: $text, selection: $0) }
+            .focused($focused)
         .keepsFocus(blockID, isFocused: focused) { focused = true }
     }
 }
 
-/// A single-line field that keeps its caret in `AppState.caret` through a fold (on macOS 14
-/// only the focus, which the caller keeps with `keepsFocus`). Focus it from outside with
+/// A single-line field that keeps its caret in `AppState.caret` through a fold (the caller keeps
+/// the focus with `keepsFocus`). Focus it from outside with
 /// `.focused(...)`, as a plain TextField.
 struct KeptTextField: View {
     let field: String
@@ -85,11 +78,7 @@ struct KeptTextField: View {
     }
 
     var body: some View {
-        if #available(macOS 15, *) {
-            SelectionKeeper(field: field, text: text) { TextField(placeholder, text: $text, selection: $0) }
-        } else {
-            TextField(placeholder, text: $text)
-        }
+        SelectionKeeper(field: field, text: text) { TextField(placeholder, text: $text, selection: $0) }
     }
 }
 
@@ -135,7 +124,6 @@ private struct KeepsFocus: ViewModifier {
 
 /// Owns a text view's selection, restoring it from `AppState.caret` on appear and writing it back as
 /// it moves while `field` has the caret.
-@available(macOS 15, *)
 private struct SelectionKeeper<Content: View>: View {
     @EnvironmentObject var state: AppState
     let field: String
