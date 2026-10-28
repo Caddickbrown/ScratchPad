@@ -3,9 +3,9 @@ name: Scratchpad
 options:
   bundleIdPrefix: com.caddickbrown
   deploymentTarget:
-    iOS: "17.0"
-    macOS: "14.0"
-  xcodeVersion: "15.0"
+    iOS: "18.0"
+    macOS: "15.0"
+  xcodeVersion: "16.0"
 packages:
   ScratchpadCore:
     path: .

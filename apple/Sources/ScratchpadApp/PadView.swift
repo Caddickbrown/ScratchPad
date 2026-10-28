@@ -2,10 +2,26 @@ import SwiftUI
 import ScratchpadCore
 
 /// The paper: header strip, dot-grid canvas, and (when wide) the to-do column at its side.
+/// When the sheet is too narrow for both (an open iPhone Duo, a half-screen iPad), the column
+/// slides over the canvas from the trailing edge instead, toggled from the toolbar.
 struct PadView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
+    @Environment(\.motion) var motion
     let compact: Bool
+    /// The sheet's own width, so the decision follows the window, never the device.
+    @State private var width: CGFloat = 0
+
+    /// Below this the canvas would be squeezed under ~400 pt beside the 340 pt column.
+    private static let sideBySideWidth: CGFloat = 760
+
+    private var slidesTodos: Bool {
+        #if os(iOS)
+        return !compact && width > 0 && width < Self.sideBySideWidth
+        #else
+        return false
+        #endif
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -14,9 +30,20 @@ struct PadView: View {
                 CanvasView()
             }
             .padding(compact ? 12 : 20)
-            if !compact {
+            if !compact && !slidesTodos {
                 Rectangle().fill(p.hairline).frame(width: 1)
                 TodoColumnView(compact: false).frame(width: 340)
+            }
+        }
+        .overlay(alignment: .trailing) {
+            // The same flag as the iPhone's to-do sheet, so the open column follows a fold.
+            if slidesTodos && state.showTodoSheet {
+                HStack(spacing: 0) {
+                    Rectangle().fill(p.hairline).frame(width: 1)
+                    TodoColumnView(compact: false).frame(width: max(240, min(340, width - 60)))
+                }
+                .shadow(color: .black.opacity(0.12), radius: 12, x: -2)
+                .transition(.move(edge: .trailing))
             }
         }
         .background(p.paper)
@@ -25,6 +52,21 @@ struct PadView: View {
         .shadow(color: .black.opacity(compact ? 0 : 0.06), radius: 10, y: 2)
         .padding(compact ? 0 : 20)
         .background(p.desk)
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { width = g.size.width }
+                .onChange(of: g.size.width) { _, w in width = w }
+        })
+        .toolbar {
+            if slidesTodos {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        animate(motion.isOff ? nil : .easeInOut(duration: 0.25)) { state.showTodoSheet.toggle() }
+                    } label: { Label("To-do", systemImage: "checklist") }
+                    .help("Show or hide the to-do column")
+                }
+            }
+        }
         .navigationTitle(compact ? compactTitle : "")
     }
 
@@ -41,7 +83,6 @@ struct PadHeader: View {
     @Environment(\.palette) var p
     @Environment(\.motion) var motion
     let compact: Bool
-    @State private var pickingDate = false
     @FocusState private var titleFocused: Bool
     @State private var sheetID: String?
 
@@ -54,10 +95,11 @@ struct PadHeader: View {
             HStack(spacing: 0) {
                 dateBox
                 Rectangle().fill(p.rule).frame(width: 1)
-                TextField("Untitled sheet", text: title)
+                KeptTextField("Untitled sheet", field: Caret.sheetTitle, text: title)
                     .textFieldStyle(.plain)
                     .font(Fonts.ui(compact ? 15 : 14, .medium)).foregroundStyle(p.ink)
                     .focused($titleFocused)
+                    .keepsFocus(Caret.sheetTitle, isFocused: titleFocused) { titleFocused = true }
                     .padding(.horizontal, 12)
                 if !compact {
                     Rectangle().fill(p.rule).frame(width: 1)
@@ -71,6 +113,7 @@ struct PadHeader: View {
         .onAppear {
             sheetID = state.current?.id
             if state.focusTitlePending { focusTitleSoon() }
+            state.reopenHeaderPopoverAfterFold()
         }
         .onChange(of: state.focusTitlePending) { _, pending in
             if pending && sheetID == state.current?.id { focusTitleSoon() }
@@ -86,7 +129,7 @@ struct PadHeader: View {
     }
 
     private var dateBox: some View {
-        Button { pickingDate = true } label: {
+        Button { state.openHeaderPopover(.date) } label: {
             HStack(spacing: 10) {
                 Text("DATE").font(Fonts.ui(10, .semibold)).tracking(1).foregroundStyle(p.muted)
                 Text(dateText).font(Fonts.mono(13)).foregroundStyle(p.ink).lineLimit(1)
@@ -100,12 +143,14 @@ struct PadHeader: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Date: \(dateText). Choose a date")
-        .popover(isPresented: $pickingDate, arrowEdge: .bottom) {
+        .popover(isPresented: state.headerPopoverBinding(.date), arrowEdge: .bottom) {
             Themed {
-                DateGridPicker(selected: state.current?.date, marked: state.datesWithSheets, today: state.todayKey) { day in
-                    pickingDate = false
+                DateGridPicker(selected: state.current?.date, marked: state.datesWithSheets, today: state.todayKey,
+                               keepsEntry: true) { day in
+                    state.closeHeaderPopover()
                     state.moveCurrent(to: day)
                 }
+                .environmentObject(state)
                 .padding(16)
                 .frame(width: 300)
                 .popIn()
@@ -121,29 +166,42 @@ struct PadHeader: View {
 }
 
 /// Month grid, Monday first, today ringed, a dot under days that already have sheets, plus typed input.
+/// With `keepsEntry` (the DATE box's popover, which a fold rebuilds) the typed text, the month shown
+/// and the entry's focus and caret are kept in `AppState`.
 struct DateGridPicker: View {
+    @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
     let selected: String?
     let marked: Set<String>
     let today: String
+    var keepsEntry = false
     let onPick: (String) -> Void
     @State private var year = 2026
     @State private var month = 1
     @State private var typed = ""
     @State private var typedInvalid = false
+    @FocusState private var typedFocused: Bool
+
+    /// The typed date: kept in `AppState` for the DATE box, local for "New sheet on a date…".
+    private var entry: Binding<String> {
+        guard keepsEntry else { return $typed }
+        return Binding(get: { state.entryDrafts[Caret.dateEntry] ?? "" }, set: { state.entryDrafts[Caret.dateEntry] = $0 })
+    }
 
     private static let weekdayInitials = ["M", "T", "W", "T", "F", "S", "S"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Type a date: tomorrow, fri, 15 oct, +3", text: $typed)
+            KeptTextField("Type a date: tomorrow, fri, 15 oct, +3", field: Caret.dateEntry, text: entry)
                 .textFieldStyle(.roundedBorder)
                 .font(Fonts.ui(13))
+                .focused($typedFocused)
+                .keepsFocus(Caret.dateEntry, isFocused: keepsEntry && typedFocused) { typedFocused = true }
                 .onSubmit(submitTyped)
-                .onChange(of: typed) { _, _ in typedInvalid = false }
+                .onChange(of: entry.wrappedValue) { _, _ in typedInvalid = false }
             if typedInvalid {
                 Text("Try today, tomorrow, fri, 15 oct, 15/10, 2026-10-15, +3 or -2.").font(Fonts.ui(11)).foregroundStyle(p.overdue)
-            } else if let preview = DatePhrase.parse(typed, today: today) {
+            } else if let preview = DatePhrase.parse(entry.wrappedValue, today: today) {
                 Text(DayLabel.longDate(preview)).font(Fonts.mono(11)).foregroundStyle(p.muted)
             }
             HStack {
@@ -167,7 +225,15 @@ struct DateGridPicker: View {
                 }
             }
         }
-        .onAppear(perform: jumpToSelection)
+        .onAppear {
+            if keepsEntry, let kept = state.dateGridMonth {
+                year = kept.year; month = kept.month
+            } else {
+                jumpToSelection()
+            }
+        }
+        .onChange(of: month) { _, _ in if keepsEntry { state.dateGridMonth = (year, month) } }
+        .onChange(of: year) { _, _ in if keepsEntry { state.dateGridMonth = (year, month) } }
     }
 
     @ViewBuilder
@@ -193,7 +259,7 @@ struct DateGridPicker: View {
     }
 
     private func submitTyped() {
-        if let key = DatePhrase.parse(typed, today: today) { onPick(key) } else { typedInvalid = true }
+        if let key = DatePhrase.parse(entry.wrappedValue, today: today) { onPick(key) } else { typedInvalid = true }
     }
 
     private func shift(_ delta: Int) {
@@ -216,7 +282,6 @@ struct DateGridPicker: View {
 struct TagChips: View {
     @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
-    @State private var adding = false
 
     private var tags: [String] { state.current?.tags ?? [] }
 
@@ -236,13 +301,13 @@ struct TagChips: View {
                     .background(p.chrome, in: Capsule())
                     .overlay(Capsule().stroke(p.hairline, lineWidth: 1))
                 }
-                Button { adding = true } label: {
+                Button { state.openHeaderPopover(.tag) } label: {
                     Text("+ tag").font(Fonts.mono(12)).foregroundStyle(p.accent)
                 }
                 .buttonStyle(.plain)
-                .popover(isPresented: $adding, arrowEdge: .bottom) {
+                .popover(isPresented: state.headerPopoverBinding(.tag), arrowEdge: .bottom) {
                     Themed {
-                        TagInput(onDone: { adding = false })
+                        TagInput(onDone: { state.closeHeaderPopover() })
                             .environmentObject(state)
                             .frame(width: 260)
                             .popIn()
@@ -259,18 +324,24 @@ struct TagInput: View {
     @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
     let onDone: () -> Void
-    @State private var text = ""
     @FocusState private var focused: Bool
+
+    /// Kept in `AppState`, so a fold that rebuilds the popover keeps what was typed.
+    private var text: String {
+        get { state.entryDrafts[Caret.tagEntry] ?? "" }
+        nonmutating set { state.entryDrafts[Caret.tagEntry] = newValue }
+    }
 
     private var normalized: String { Tags.normalize(text) }
     private var suggestions: [(tag: String, count: Int)] { Array(state.tagSuggestions(text).prefix(8)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextField("tag", text: $text)
+            KeptTextField("tag", field: Caret.tagEntry, text: Binding(get: { text }, set: { text = $0 }))
                 .textFieldStyle(.roundedBorder)
                 .font(Fonts.mono(13))
                 .focused($focused)
+                .keepsFocus(Caret.tagEntry, isFocused: focused) { focused = true }
                 .autocorrectionDisabled()
                 #if os(iOS)
                 .textInputAutocapitalization(.never)

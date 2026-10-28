@@ -14,6 +14,9 @@ struct RootView: View {
     /// Whether the rail is showing, remembered so a folded rail stays folded.
     @AppStorage(SettingsKey.sidebarColumns) private var storedColumns: SplitColumns = .all
     @State private var pinnedTitle = ""
+    /// The iPhone stack's path: the open sheet is pushed onto it when the window turns compact
+    /// (folding an iPhone Duo), so the fold keeps you on the sheet rather than the rail.
+    @State private var phonePath: [String] = []
 
     private var compact: Bool {
         #if os(iOS)
@@ -27,6 +30,12 @@ struct RootView: View {
         Group {
             if compact { phone } else { desktop }
         }
+        #if os(iOS)
+        .onChange(of: sizeClass) { _, newValue in
+            state.flush()
+            phonePath = newValue == .compact ? (state.current.map { [$0.id] } ?? []) : []
+        }
+        #endif
         .alert("Something went wrong", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
             Button("OK") { state.error = nil }
         } message: { Text(state.error ?? "") }
@@ -104,7 +113,7 @@ struct RootView: View {
     }
 
     private var phone: some View {
-        NavigationStack {
+        NavigationStack(path: $phonePath) {
             RailView()
                 .toolbar {
                     ToolbarItemGroup(placement: .primaryAction) {

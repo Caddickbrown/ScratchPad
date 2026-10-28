@@ -13,8 +13,45 @@ struct RailView: View {
         mode == .byDay ? Sidebar.byDay(visible, today: state.todayKey) : Sidebar.byTag(visible, sort: tagSort)
     }
     private var pinned: [Pad] { Sidebar.pinned(visible) }
+    /// Rows on screen, tracked without redrawing, for the rail's scroll (see `rowAppeared`).
+    @State private var onScreen = RowsOnScreen()
+    @State private var restored = false
+
+    /// Every row's id, top to bottom.
+    private var rowIDs: [String] {
+        groups.flatMap { g in g.sheets.map { Self.rowID($0, groupID: g.id) } } + pinned.map { Self.rowID($0, groupID: "pinned") }
+    }
+
+    private static func rowID(_ pad: Pad, groupID: String) -> String { "\(groupID)/\(pad.id)" }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            list
+                .onAppear {
+                    // A fold rebuilds the rail at the top; scroll it back to the row that was at the top.
+                    guard !restored else { return }
+                    let top = state.railTopRow
+                    Task { @MainActor in
+                        if let top {
+                            try? await Task.sleep(nanoseconds: 100_000_000)
+                            proxy.scrollTo(top, anchor: .top)
+                        }
+                        restored = true
+                    }
+                }
+        }
+    }
+
+    /// The rail's scroll is kept as the top visible row in `AppState.railTopRow` (List has no
+    /// `scrollPosition(id:)`). Only appearances update it: a fold tearing the rail down makes every
+    /// row disappear, and that must not move the kept row.
+    private func rowAppeared(_ id: String) {
+        onScreen.ids.insert(id)
+        guard restored, let top = rowIDs.first(where: onScreen.ids.contains) else { return }
+        state.railTopRow = top
+    }
+
+    private var list: some View {
         List(selection: Binding(get: { state.current?.id }, set: { if let id = $0 { state.open(id) } })) {
             ForEach(groups) { group in
                 Section {
@@ -76,10 +113,21 @@ struct RailView: View {
     private func row(_ pad: Pad, groupID: String) -> some View {
         #if os(iOS)
         NavigationLink(value: pad.id) { SheetRow(pad: pad) }.tag(pad.id)
+            .id(Self.rowID(pad, groupID: groupID))
+            .onAppear { rowAppeared(Self.rowID(pad, groupID: groupID)) }
+            .onDisappear { onScreen.ids.remove(Self.rowID(pad, groupID: groupID)) }
         #else
         SheetRow(pad: pad).tag(pad.id)
+            .id(Self.rowID(pad, groupID: groupID))
+            .onAppear { rowAppeared(Self.rowID(pad, groupID: groupID)) }
+            .onDisappear { onScreen.ids.remove(Self.rowID(pad, groupID: groupID)) }
         #endif
     }
+}
+
+/// A plain box, so recording which rows are on screen does not redraw the rail.
+final class RowsOnScreen {
+    var ids: Set<String> = []
 }
 
 struct SheetRow: View {

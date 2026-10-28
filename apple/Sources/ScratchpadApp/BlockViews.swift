@@ -28,7 +28,7 @@ struct TextBlock: View {
     @Environment(\.palette) var p
     @Binding var block: Block
     var body: some View {
-        TextEditor(text: Binding(get: { block.text ?? "" }, set: { block.text = $0 }))
+        BlockTextEditor(blockID: block.id, text: Binding(get: { block.text ?? "" }, set: { block.text = $0 }))
             .font(Fonts.block(block)).foregroundStyle(p.ink)
             .scrollContentBackground(.hidden).scrollDisabled(true)
             .frame(minHeight: 40)
@@ -40,13 +40,112 @@ struct CodeBlock: View {
     @Environment(\.palette) var p
     @Binding var block: Block
     var body: some View {
-        TextEditor(text: Binding(get: { block.text ?? "" }, set: { block.text = $0 }))
+        BlockTextEditor(blockID: block.id, text: Binding(get: { block.text ?? "" }, set: { block.text = $0 }))
             .font(Fonts.block(block.font == .sans ? .mono : block.font, size: CGFloat(block.fontSize) - 2, bold: block.bold, italic: block.italic))
             .foregroundStyle(p.codeInk)
             .scrollContentBackground(.hidden).scrollDisabled(true)
             .frame(minHeight: 40)
             .padding(8)
             .background(p.codeBg, in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+/// A block's TextEditor that keeps its focus and caret in `AppState.caret`, so folding or
+/// unfolding mid-sentence (the sheet is rebuilt in the other layout) leaves the caret where it was.
+/// The caret position uses `TextEditor(text:selection:)`.
+struct BlockTextEditor: View {
+    let blockID: String
+    @Binding var text: String
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        SelectionKeeper(field: blockID, text: text) { TextEditor(text: $text, selection: $0) }
+            .focused($focused)
+        .keepsFocus(blockID, isFocused: focused) { focused = true }
+    }
+}
+
+/// A single-line field that keeps its caret in `AppState.caret` through a fold (the caller keeps
+/// the focus with `keepsFocus`). Focus it from outside with
+/// `.focused(...)`, as a plain TextField.
+struct KeptTextField: View {
+    let field: String
+    let placeholder: LocalizedStringKey
+    @Binding var text: String
+
+    init(_ placeholder: LocalizedStringKey, field: String, text: Binding<String>) {
+        self.placeholder = placeholder; self.field = field; _text = text
+    }
+
+    var body: some View {
+        SelectionKeeper(field: field, text: text) { TextField(placeholder, text: $text, selection: $0) }
+    }
+}
+
+extension View {
+    /// Records in `AppState.caret` that `field` has focus, and takes the focus back (through
+    /// `refocus`) when the field is rebuilt by a fold or unfold while it had it.
+    func keepsFocus(_ field: String, isFocused: Bool, refocus: @escaping () -> Void) -> some View {
+        modifier(KeepsFocus(field: field, isFocused: isFocused, refocus: refocus))
+    }
+}
+
+private struct KeepsFocus: ViewModifier {
+    @EnvironmentObject var state: AppState
+    let field: String
+    let isFocused: Bool
+    let refocus: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: isFocused) { _, isFocused in
+                if isFocused {
+                    state.caretToken = UUID()
+                    if state.caret?.field != field { state.caret = Caret(field: field) }
+                } else if state.caret?.field == field {
+                    // The fold tears this field down too; only forget the caret if nothing has
+                    // taken focus back once the rebuilt layout has settled.
+                    let token = state.caretToken
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 800_000_000)
+                        if state.caretToken == token, state.caret?.field == field { state.caret = nil }
+                    }
+                }
+            }
+            .onAppear {
+                guard state.caret?.field == field else { return }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    refocus()
+                }
+            }
+    }
+}
+
+/// Owns a text view's selection, restoring it from `AppState.caret` on appear and writing it back as
+/// it moves while `field` has the caret.
+private struct SelectionKeeper<Content: View>: View {
+    @EnvironmentObject var state: AppState
+    let field: String
+    let text: String
+    @ViewBuilder let content: (Binding<TextSelection?>) -> Content
+    @State private var selection: TextSelection?
+
+    var body: some View {
+        content($selection)
+            .onAppear {
+                guard let caret = state.caret, caret.field == field, let range = caret.range else { return }
+                let lower = text.index(text.startIndex, offsetBy: min(range.lowerBound, text.count))
+                let upper = text.index(text.startIndex, offsetBy: min(range.upperBound, text.count))
+                selection = TextSelection(range: lower..<upper)
+            }
+            .onChange(of: selection) { _, newValue in
+                guard state.caret?.field == field, let newValue,
+                      case .selection(let range) = newValue.indices,
+                      range.lowerBound >= text.startIndex, range.upperBound <= text.endIndex else { return }
+                state.caret?.range = text.distance(from: text.startIndex, to: range.lowerBound)
+                    ..< text.distance(from: text.startIndex, to: range.upperBound)
+            }
     }
 }
 
@@ -57,11 +156,13 @@ struct CellPos: Hashable {
 
 /// Table with per-column widths, formulas, and (while selected) column letters, row numbers and a formula bar.
 struct TableBlock: View {
+    @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
     @Environment(\.motion) var motion
     @Binding var block: Block
     let selected: Bool
     @FocusState private var focused: CellPos?
+    @FocusState private var barFocused: Bool
     @State private var lastFocused: CellPos?
     @State private var liveWidths: [Int]?
 
@@ -98,7 +199,11 @@ struct TableBlock: View {
                 Button("Remove last column") { removeColumn() }
             }
         }
-        .onChange(of: focused) { _, f in if let f { lastFocused = f } }
+        .onChange(of: focused) { _, f in
+            if let f { lastFocused = f; state.tableCell[block.id] = f }
+        }
+        // The cell the formula bar edits, kept in AppState so a fold's rebuilt table edits it too.
+        .onAppear { if lastFocused == nil { lastFocused = state.tableCell[block.id] } }
     }
 
     // MARK: Cells
@@ -112,11 +217,12 @@ struct TableBlock: View {
         let value = eval.value(row: r, col: c)
         let isError: Bool = { if case .error = value { return true } else { return false } }()
         ZStack(alignment: showComputed ? .trailing : .leading) {
-            TextField("", text: cellBinding(r, c))
+            KeptTextField("", field: Caret.cell(block.id, r, c), text: cellBinding(r, c))
                 .textFieldStyle(.plain)
                 .font(cellFont(header: r == 0, mono: isFormula))
                 .foregroundStyle(p.ink)
                 .focused($focused, equals: pos)
+                .keepsFocus(Caret.cell(block.id, r, c), isFocused: focused == pos) { focused = pos }
                 .opacity(showComputed ? 0 : 1)
             if showComputed {
                 Text(value.display)
@@ -223,9 +329,11 @@ struct TableBlock: View {
                 .frame(width: 40, alignment: .leading)
             Rectangle().fill(p.hairline).frame(width: 1, height: 14)
             if let pos {
-                TextField("Value or =formula", text: cellBinding(pos.r, pos.c))
+                KeptTextField("Value or =formula", field: Caret.formulaBar(block.id), text: cellBinding(pos.r, pos.c))
                     .textFieldStyle(.plain)
                     .font(Fonts.mono(12)).foregroundStyle(p.ink)
+                    .focused($barFocused)
+                    .keepsFocus(Caret.formulaBar(block.id), isFocused: barFocused) { barFocused = true }
             } else {
                 Text("Select a cell").font(Fonts.ui(12)).foregroundStyle(p.muted)
             }
@@ -307,13 +415,19 @@ struct LinkBlock: View {
     @Environment(\.palette) var p
     @Environment(\.openURL) var openURL
     @Binding var block: Block
+    private enum Field { case title, url }
+    @FocusState private var focused: Field?
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            TextField("Title", text: Binding(get: { block.text ?? "" }, set: { block.text = $0 }))
+            KeptTextField("Title", field: Caret.linkTitle(block.id), text: Binding(get: { block.text ?? "" }, set: { block.text = $0 }))
                 .textFieldStyle(.plain).font(Fonts.block(block.font, size: CGFloat(block.fontSize), bold: true, italic: block.italic)).foregroundStyle(p.ink)
+                .focused($focused, equals: .title)
+                .keepsFocus(Caret.linkTitle(block.id), isFocused: focused == .title) { focused = .title }
             HStack {
-                TextField("https://", text: Binding(get: { block.url ?? "" }, set: { block.url = $0 }))
+                KeptTextField("https://", field: Caret.linkURL(block.id), text: Binding(get: { block.url ?? "" }, set: { block.url = $0 }))
                     .textFieldStyle(.plain).font(Fonts.mono(11)).foregroundStyle(p.muted)
+                    .focused($focused, equals: .url)
+                    .keepsFocus(Caret.linkURL(block.id), isFocused: focused == .url) { focused = .url }
                 Button { if let u = URL(string: block.url ?? "") { openURL(u) } } label: { Image(systemName: "arrow.up.right.square") }
                     .buttonStyle(.plain).foregroundStyle(p.accent).accessibilityLabel("Open link")
             }
