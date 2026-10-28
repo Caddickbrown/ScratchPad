@@ -7,6 +7,9 @@ struct RailView: View {
     @Environment(\.palette) var p
     @AppStorage(SettingsKey.sidebarMode) private var mode: SidebarMode = .byDay
     @AppStorage(SettingsKey.tagSort) private var tagSort: TagSort = .alphabetical
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
 
     private var visible: [Pad] { state.filteredPads }
     private var groups: [SheetGroup] {
@@ -51,8 +54,18 @@ struct RailView: View {
         state.railTopRow = top
     }
 
+    /// The open sheet as the list's selection, for the sidebar beside it. On a phone the rail is
+    /// the root of a navigation stack: a selectable list there takes a tap as selecting the row
+    /// and never follows its link, so no sheet would open.
+    private var selection: Binding<String?>? {
+        #if os(iOS)
+        if sizeClass == .compact { return nil }
+        #endif
+        return Binding(get: { state.current?.id }, set: { if let id = $0 { state.open(id) } })
+    }
+
     private var list: some View {
-        List(selection: Binding(get: { state.current?.id }, set: { if let id = $0 { state.open(id) } })) {
+        List(selection: selection) {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.sheets) { pad in row(pad, groupID: group.id) }
