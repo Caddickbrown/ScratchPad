@@ -52,8 +52,8 @@ struct CodeBlock: View {
 
 /// A block's TextEditor that keeps its focus and caret in `AppState.caret`, so folding or
 /// unfolding mid-sentence (the sheet is rebuilt in the other layout) leaves the caret where it was.
-/// The caret position needs iOS 18 / macOS 15 (`TextEditor(text:selection:)`); before that only
-/// the focus comes back.
+/// The caret position uses `TextEditor(text:selection:)` (every supported iOS; macOS 15+, on
+/// macOS 14 only the focus comes back).
 struct BlockTextEditor: View {
     let blockID: String
     @Binding var text: String
@@ -61,7 +61,7 @@ struct BlockTextEditor: View {
 
     var body: some View {
         Group {
-            if #available(iOS 18, macOS 15, *) {
+            if #available(macOS 15, *) {
                 SelectionKeeper(field: blockID, text: text) { TextEditor(text: $text, selection: $0) }
             } else {
                 TextEditor(text: $text)
@@ -72,8 +72,8 @@ struct BlockTextEditor: View {
     }
 }
 
-/// A single-line field that keeps its caret in `AppState.caret` through a fold (iOS 18 / macOS 15;
-/// earlier only the focus, which the caller keeps with `keepsFocus`). Focus it from outside with
+/// A single-line field that keeps its caret in `AppState.caret` through a fold (on macOS 14
+/// only the focus, which the caller keeps with `keepsFocus`). Focus it from outside with
 /// `.focused(...)`, as a plain TextField.
 struct KeptTextField: View {
     let field: String
@@ -85,7 +85,7 @@ struct KeptTextField: View {
     }
 
     var body: some View {
-        if #available(iOS 18, macOS 15, *) {
+        if #available(macOS 15, *) {
             SelectionKeeper(field: field, text: text) { TextField(placeholder, text: $text, selection: $0) }
         } else {
             TextField(placeholder, text: $text)
@@ -135,7 +135,7 @@ private struct KeepsFocus: ViewModifier {
 
 /// Owns a text view's selection, restoring it from `AppState.caret` on appear and writing it back as
 /// it moves while `field` has the caret.
-@available(iOS 18, macOS 15, *)
+@available(macOS 15, *)
 private struct SelectionKeeper<Content: View>: View {
     @EnvironmentObject var state: AppState
     let field: String
@@ -168,11 +168,13 @@ struct CellPos: Hashable {
 
 /// Table with per-column widths, formulas, and (while selected) column letters, row numbers and a formula bar.
 struct TableBlock: View {
+    @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
     @Environment(\.motion) var motion
     @Binding var block: Block
     let selected: Bool
     @FocusState private var focused: CellPos?
+    @FocusState private var barFocused: Bool
     @State private var lastFocused: CellPos?
     @State private var liveWidths: [Int]?
 
@@ -209,7 +211,11 @@ struct TableBlock: View {
                 Button("Remove last column") { removeColumn() }
             }
         }
-        .onChange(of: focused) { _, f in if let f { lastFocused = f } }
+        .onChange(of: focused) { _, f in
+            if let f { lastFocused = f; state.tableCell[block.id] = f }
+        }
+        // The cell the formula bar edits, kept in AppState so a fold's rebuilt table edits it too.
+        .onAppear { if lastFocused == nil { lastFocused = state.tableCell[block.id] } }
     }
 
     // MARK: Cells
@@ -335,9 +341,11 @@ struct TableBlock: View {
                 .frame(width: 40, alignment: .leading)
             Rectangle().fill(p.hairline).frame(width: 1, height: 14)
             if let pos {
-                TextField("Value or =formula", text: cellBinding(pos.r, pos.c))
+                KeptTextField("Value or =formula", field: Caret.formulaBar(block.id), text: cellBinding(pos.r, pos.c))
                     .textFieldStyle(.plain)
                     .font(Fonts.mono(12)).foregroundStyle(p.ink)
+                    .focused($barFocused)
+                    .keepsFocus(Caret.formulaBar(block.id), isFocused: barFocused) { barFocused = true }
             } else {
                 Text("Select a cell").font(Fonts.ui(12)).foregroundStyle(p.muted)
             }

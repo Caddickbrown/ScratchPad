@@ -21,7 +21,13 @@ struct Caret: Equatable {
     static func linkTitle(_ blockID: String) -> String { "\(blockID)#link-title" }
     static func linkURL(_ blockID: String) -> String { "\(blockID)#link-url" }
     static func todo(_ id: String) -> String { "todo#\(id)" }
+    static func formulaBar(_ blockID: String) -> String { "\(blockID)#formula" }
+    static let dateEntry = "date-entry"
+    static let tagEntry = "tag-entry"
 }
+
+/// The sheet header's popovers: the DATE box's month grid and the tag input.
+enum HeaderPopover: Equatable { case date, tag }
 
 @MainActor
 final class AppState: ObservableObject {
@@ -62,6 +68,21 @@ final class AppState: ObservableObject {
     /// Where the canvas was scrolled, per sheet, so a fold or unfold lands on the same spot.
     /// Not published, for the same reason.
     var canvasOffset: (sheetID: String, point: CGPoint)?
+    /// The rail's and the to-do list's scroll: the id of the row at the top, so a fold or unfold
+    /// scrolls the rebuilt list back to it. Not published.
+    var railTopRow: String?
+    var todoTopRow: (sheetID: String, rowID: String)?
+    /// The table cell each table's formula bar edits, by block id, for the rebuilt table. Not published.
+    var tableCell: [String: CellPos] = [:]
+    /// What has been typed into the date and tag entries (by `Caret` key), kept here while their
+    /// popover is open so a fold does not clear them; published, as the popovers draw from it.
+    @Published var entryDrafts: [String: String] = [:]
+    /// The month the DATE box's grid shows, for the same reason. Not published.
+    var dateGridMonth: (year: Int, month: Int)?
+    /// The open header popover. Owned here rather than by the header, which a fold rebuilds.
+    @Published var headerPopover: HeaderPopover?
+    /// A popover SwiftUI closed, and when; a header rebuilt by a fold soon after opens it again.
+    private var closedPopover: (popover: HeaderPopover, sheetID: String?, at: Date)?
     /// Changes each time an editor takes focus; a lost focus only clears `caret` if no editor
     /// has taken it back by the time the rebuilt layout has settled.
     var caretToken = UUID()
@@ -125,6 +146,7 @@ final class AppState: ObservableObject {
         guard current?.id != id else { return }
         flush()
         selectedBlockID = nil
+        closeHeaderPopover()
         if let pad = try? store.load(id) { current = pad }
     }
 
@@ -387,6 +409,56 @@ final class AppState: ObservableObject {
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
             self?.flush()
+        }
+    }
+
+    // MARK: Header popovers
+
+    /// Opens a header popover afresh, with empty entries.
+    func openHeaderPopover(_ which: HeaderPopover) {
+        entryDrafts = [:]
+        dateGridMonth = nil
+        closedPopover = nil
+        headerPopover = which
+    }
+
+    /// Closes it on purpose (a date picked, a tag added and done, another sheet opened).
+    func closeHeaderPopover() {
+        closedPopover = nil
+        headerPopover = nil
+    }
+
+    /// The presentation binding. SwiftUI writes false when the popover is dismissed, which also
+    /// happens when a fold tears the presenting header down; the close is noted so the rebuilt
+    /// header can reopen it (`reopenHeaderPopoverAfterFold`).
+    func headerPopoverBinding(_ which: HeaderPopover) -> Binding<Bool> {
+        Binding(get: { self.headerPopover == which }, set: { open in
+            if open {
+                self.headerPopover = which
+            } else if self.headerPopover == which {
+                self.headerPopover = nil
+                self.closedPopover = (which, self.current?.id, Date())
+            }
+        })
+    }
+
+    /// Called by a newly built header. A popover still open, or closed within the last second on
+    /// this sheet, was taken down by the layout changing under it (a fold), not by the person: it is
+    /// presented again from the new header once the old one has gone, so the two never overlap.
+    func reopenHeaderPopoverAfterFold() {
+        let sheetID = current?.id
+        var wanted = headerPopover
+        if wanted == nil, let closed = closedPopover, closed.sheetID == sheetID,
+           Date().timeIntervalSince(closed.at) < 1 {
+            wanted = closed.popover
+        }
+        guard let pending = wanted else { return }
+        headerPopover = nil
+        closedPopover = nil
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard self.current?.id == sheetID, self.headerPopover == nil else { return }
+            self.headerPopover = pending
         }
     }
 

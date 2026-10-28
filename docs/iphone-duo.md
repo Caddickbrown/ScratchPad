@@ -23,27 +23,27 @@ scene, inside `#if os(macOS)`.
 
 ## Through a fold
 
-- **The open sheet**: folding pushes it onto the phone stack (`phonePath`), so
-  you stay on the sheet, not the rail. Unfolding shows it in the split view.
-- **The to-do column**: the slide-over and the phone's to-do sheet share
-  `state.showTodoSheet`, so whichever is open stays open across the fold.
-- **The caret**: every text field keeps its focus and caret in `AppState.caret`
-  (`keepsFocus` and `KeptTextField` in `BlockViews.swift`): text and code blocks,
-  table cells, a link's title and address, the sheet title and to-do rows. The
-  rebuilt field takes both back. The caret position needs iOS 18
-  (`TextEditor`/`TextField(text:selection:)`); the package targets iOS 17, where
-  only the focus returns. The table's formula bar is not kept (its cell is).
-- **The canvas scroll**: `AppState.canvasOffset` keeps the offset per sheet
-  (`KeepsCanvasScroll` in `CanvasView.swift`, iOS 18 `ScrollPosition`); on iOS 17
-  the canvas starts at the top left again. The to-do list's own scroll is not kept.
+The app targets iOS 18 (macOS 14), so everything below holds on every supported iOS.
+
+- **The open sheet**: folding pushes it onto the phone stack (`phonePath`); unfolding
+  shows it in the split view. The to-do slide-over and the phone's to-do sheet share
+  `state.showTodoSheet`, so whichever is open stays open.
+- **Focus and caret**: every field keeps both in `AppState.caret` (`keepsFocus`,
+  `KeptTextField` in `BlockViews.swift`): text and code blocks, table cells and the
+  formula bar (its cell in `AppState.tableCell`), a link's title and address, the
+  sheet title, to-do rows, and the date and tag entries.
+- **The DATE and tag popovers**: open state in `AppState.headerPopover`, typed text in
+  `entryDrafts`, the grid's month in `dateGridMonth`. If SwiftUI closes a popover as
+  the header is torn down, the rebuilt header reopens it (`reopenHeaderPopoverAfterFold`).
+- **Scroll**: the canvas offset per sheet (`ScrollPosition`, `AppState.canvasOffset`);
+  the to-do list by its top row (`scrollPosition(id:)`, `todoTopRow`); the rail by its
+  top visible row (`ScrollViewReader`, `railTopRow`), to the row, not the point.
+- On macOS 14 (unchanged target) the caret position and canvas scroll don't return.
 
 ## Waits on the iOS 27.1 SDK / a device
 
-- Check the caret lands mid-sentence after a fold: the editor sets the selection
-  on appear and focuses 150 ms later; if focusing moves the caret to the end,
-  set the selection again after focusing.
-- Check the toolbars in their vertical 27.1 form; the To-do button is a system
-  toolbar item, so it should follow.
-- Check the canvas offset survives: if the old layout reports a clamped offset
-  while it is torn down, record only while the sheet is not mid-resize.
-- 760 pt is a guess; tune it on a device.
+- The caret lands mid-sentence: the selection is set on appear, focus 150 ms later;
+  if focusing moves the caret to the end, set the selection again after focusing.
+- The canvas offset: if the old layout reports a clamped offset as it is torn down,
+  record only while the sheet is not mid-resize. The reopened popover: no flicker.
+- The toolbars in their vertical 27.1 form (To-do is a system item); 760 pt is a guess.

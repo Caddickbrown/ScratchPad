@@ -15,6 +15,8 @@ struct TodoColumnView: View {
     @State private var stampShown = false
     @State private var thud = 0
     @State private var countBumps = 0
+    /// The row at the top of the list, mirrored into `AppState.todoTopRow` so a fold keeps the scroll.
+    @State private var topRow: String?
 
     private var pad: Pad { state.current ?? Pad.daily("") }
 
@@ -35,7 +37,15 @@ struct TodoColumnView: View {
                                 onDrop: { dragged, after in reorder(dragged, target: todo.id, after: after) })
                     }
                 }
+                .scrollTargetLayout()
                 .padding(.vertical, 2)
+            }
+            .scrollPosition(id: $topRow, anchor: .top)
+            .onAppear {
+                if let kept = state.todoTopRow, kept.sheetID == pad.id { topRow = kept.rowID }
+            }
+            .onChange(of: topRow) { _, id in
+                if let id { state.todoTopRow = (pad.id, id) }
             }
             .overlay { if stampShown { AllClearStamp().allowsHitTesting(false).transition(AllClearStamp.transition(motion)) } }
             footer
