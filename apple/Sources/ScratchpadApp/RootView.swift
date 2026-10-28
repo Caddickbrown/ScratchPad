@@ -11,7 +11,8 @@ struct RootView: View {
     #if os(iOS)
     @Environment(\.horizontalSizeClass) var sizeClass
     #endif
-    @State private var columns: NavigationSplitViewVisibility = .all
+    /// Whether the rail is showing, remembered so a folded rail stays folded.
+    @AppStorage(SettingsKey.sidebarColumns) private var storedColumns: SplitColumns = .all
     @State private var pinnedTitle = ""
 
     private var compact: Bool {
@@ -71,10 +72,18 @@ struct RootView: View {
 
     // MARK: Layouts
 
+    private var columns: Binding<NavigationSplitViewVisibility> {
+        Binding(get: { storedColumns.visibility }, set: { storedColumns = SplitColumns($0) })
+    }
+
     private var desktop: some View {
-        NavigationSplitView(columnVisibility: $columns) {
+        NavigationSplitView(columnVisibility: columns) {
             RailView()
+                #if os(iOS)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 190, max: 200)
+                #else
                 .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 320)
+                #endif
         } detail: {
             SheetStage(compact: false)
         }
@@ -141,6 +150,27 @@ struct RootView: View {
     private func insertBlock(_ kind: BlockKind) {
         let font = BlockFont(rawValue: UserDefaults.standard.string(forKey: SettingsKey.defaultFont) ?? "") ?? .sans
         animate(motion.fall) { state.insert(kind, font: font) }
+    }
+}
+
+/// `NavigationSplitViewVisibility` as a string `@AppStorage` can hold.
+enum SplitColumns: String {
+    case automatic, all, doubleColumn, detailOnly
+
+    init(_ visibility: NavigationSplitViewVisibility) {
+        if visibility == .all { self = .all }
+        else if visibility == .doubleColumn { self = .doubleColumn }
+        else if visibility == .detailOnly { self = .detailOnly }
+        else { self = .automatic }
+    }
+
+    var visibility: NavigationSplitViewVisibility {
+        switch self {
+        case .automatic: return .automatic
+        case .all: return .all
+        case .doubleColumn: return .doubleColumn
+        case .detailOnly: return .detailOnly
+        }
     }
 }
 
