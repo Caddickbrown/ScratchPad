@@ -2,10 +2,26 @@ import SwiftUI
 import ScratchpadCore
 
 /// The paper: header strip, dot-grid canvas, and (when wide) the to-do column at its side.
+/// When the sheet is too narrow for both (an open iPhone Duo, a half-screen iPad), the column
+/// slides over the canvas from the trailing edge instead, toggled from the toolbar.
 struct PadView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
+    @Environment(\.motion) var motion
     let compact: Bool
+    /// The sheet's own width, so the decision follows the window, never the device.
+    @State private var width: CGFloat = 0
+
+    /// Below this the canvas would be squeezed under ~400 pt beside the 340 pt column.
+    private static let sideBySideWidth: CGFloat = 760
+
+    private var slidesTodos: Bool {
+        #if os(iOS)
+        return !compact && width > 0 && width < Self.sideBySideWidth
+        #else
+        return false
+        #endif
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -14,9 +30,20 @@ struct PadView: View {
                 CanvasView()
             }
             .padding(compact ? 12 : 20)
-            if !compact {
+            if !compact && !slidesTodos {
                 Rectangle().fill(p.hairline).frame(width: 1)
                 TodoColumnView(compact: false).frame(width: 340)
+            }
+        }
+        .overlay(alignment: .trailing) {
+            // The same flag as the iPhone's to-do sheet, so the open column follows a fold.
+            if slidesTodos && state.showTodoSheet {
+                HStack(spacing: 0) {
+                    Rectangle().fill(p.hairline).frame(width: 1)
+                    TodoColumnView(compact: false).frame(width: max(240, min(340, width - 60)))
+                }
+                .shadow(color: .black.opacity(0.12), radius: 12, x: -2)
+                .transition(.move(edge: .trailing))
             }
         }
         .background(p.paper)
@@ -25,6 +52,21 @@ struct PadView: View {
         .shadow(color: .black.opacity(compact ? 0 : 0.06), radius: 10, y: 2)
         .padding(compact ? 0 : 20)
         .background(p.desk)
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { width = g.size.width }
+                .onChange(of: g.size.width) { _, w in width = w }
+        })
+        .toolbar {
+            if slidesTodos {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        animate(motion.isOff ? nil : .easeInOut(duration: 0.25)) { state.showTodoSheet.toggle() }
+                    } label: { Label("To-do", systemImage: "checklist") }
+                    .help("Show or hide the to-do column")
+                }
+            }
+        }
         .navigationTitle(compact ? compactTitle : "")
     }
 

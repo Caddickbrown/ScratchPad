@@ -28,7 +28,7 @@ struct TextBlock: View {
     @Environment(\.palette) var p
     @Binding var block: Block
     var body: some View {
-        TextEditor(text: Binding(get: { block.text ?? "" }, set: { block.text = $0 }))
+        BlockTextEditor(blockID: block.id, text: Binding(get: { block.text ?? "" }, set: { block.text = $0 }))
             .font(Fonts.block(block)).foregroundStyle(p.ink)
             .scrollContentBackground(.hidden).scrollDisabled(true)
             .frame(minHeight: 40)
@@ -40,13 +40,79 @@ struct CodeBlock: View {
     @Environment(\.palette) var p
     @Binding var block: Block
     var body: some View {
-        TextEditor(text: Binding(get: { block.text ?? "" }, set: { block.text = $0 }))
+        BlockTextEditor(blockID: block.id, text: Binding(get: { block.text ?? "" }, set: { block.text = $0 }))
             .font(Fonts.block(block.font == .sans ? .mono : block.font, size: CGFloat(block.fontSize) - 2, bold: block.bold, italic: block.italic))
             .foregroundStyle(p.codeInk)
             .scrollContentBackground(.hidden).scrollDisabled(true)
             .frame(minHeight: 40)
             .padding(8)
             .background(p.codeBg, in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+/// A block's TextEditor that keeps its focus and caret in `AppState.caret`, so folding or
+/// unfolding mid-sentence (the sheet is rebuilt in the other layout) leaves the caret where it was.
+/// The caret position needs iOS 18 / macOS 15 (`TextEditor(text:selection:)`); before that only
+/// the focus comes back.
+struct BlockTextEditor: View {
+    @EnvironmentObject var state: AppState
+    let blockID: String
+    @Binding var text: String
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Group {
+            if #available(iOS 18, macOS 15, *) {
+                SelectionTextEditor(blockID: blockID, text: $text)
+            } else {
+                TextEditor(text: $text)
+            }
+        }
+        .focused($focused)
+        .onChange(of: focused) { _, isFocused in
+            if isFocused {
+                state.caretToken = UUID()
+                if state.caret?.blockID != blockID { state.caret = Caret(blockID: blockID) }
+            } else if state.caret?.blockID == blockID {
+                let token = state.caretToken
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    if state.caretToken == token, state.caret?.blockID == blockID { state.caret = nil }
+                }
+            }
+        }
+        .onAppear {
+            guard state.caret?.blockID == blockID else { return }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                focused = true
+            }
+        }
+    }
+}
+
+@available(iOS 18, macOS 15, *)
+private struct SelectionTextEditor: View {
+    @EnvironmentObject var state: AppState
+    let blockID: String
+    @Binding var text: String
+    @State private var selection: TextSelection?
+
+    var body: some View {
+        TextEditor(text: $text, selection: $selection)
+            .onAppear {
+                guard let caret = state.caret, caret.blockID == blockID, let range = caret.range else { return }
+                let lower = text.index(text.startIndex, offsetBy: min(range.lowerBound, text.count))
+                let upper = text.index(text.startIndex, offsetBy: min(range.upperBound, text.count))
+                selection = TextSelection(range: lower..<upper)
+            }
+            .onChange(of: selection) { _, newValue in
+                guard state.caret?.blockID == blockID, let newValue,
+                      case .selection(let range) = newValue.indices,
+                      range.lowerBound >= text.startIndex, range.upperBound <= text.endIndex else { return }
+                state.caret?.range = text.distance(from: text.startIndex, to: range.lowerBound)
+                    ..< text.distance(from: text.startIndex, to: range.upperBound)
+            }
     }
 }
 

@@ -10,6 +10,12 @@ struct DeletedBlock: Equatable {
     var token = UUID()
 }
 
+/// A caret (or selection) in one block, as character offsets into its text.
+struct Caret: Equatable {
+    var blockID: String
+    var range: Range<Int>?
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var pads: [Pad] = []
@@ -41,6 +47,13 @@ final class AppState: ObservableObject {
     @Published var blankTodoID = UUID().uuidString
     /// Sheet whose carried rows should hop in once.
     @Published var hopSheetID: String?
+    /// The text or code block being typed in and where its caret sits, kept here rather than in
+    /// the editor so a fold or unfold (which rebuilds the sheet in the other layout) can put the
+    /// caret back. Not published: it moves with every keystroke and nothing draws from it.
+    var caret: Caret?
+    /// Changes each time an editor takes focus; a lost focus only clears `caret` if no editor
+    /// has taken it back by the time the rebuilt layout has settled.
+    var caretToken = UUID()
 
     private(set) var store: PadStore
     private var saveTask: Task<Void, Never>?
