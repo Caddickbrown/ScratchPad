@@ -96,10 +96,11 @@ struct PadHeader: View {
             HStack(spacing: 0) {
                 dateBox
                 Rectangle().fill(p.rule).frame(width: 1)
-                TextField("Untitled sheet", text: title)
+                KeptTextField("Untitled sheet", field: Caret.sheetTitle, text: title)
                     .textFieldStyle(.plain)
                     .font(Fonts.ui(compact ? 15 : 14, .medium)).foregroundStyle(p.ink)
                     .focused($titleFocused)
+                    .keepsFocus(Caret.sheetTitle, isFocused: titleFocused) { titleFocused = true }
                     .padding(.horizontal, 12)
                 if !compact {
                     Rectangle().fill(p.rule).frame(width: 1)

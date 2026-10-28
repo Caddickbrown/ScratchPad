@@ -232,10 +232,11 @@ struct TodoRow: View {
             grip
             statusCircle
             ZStack(alignment: .leading) {
-                TextField(isBlank ? "New to-do" : "", text: text)
+                KeptTextField(isBlank ? "New to-do" : "", field: Caret.todo(todo.id), text: text)
                     .textFieldStyle(.plain)
                     .font(Fonts.ui(compact ? 15 : 13)).foregroundStyle(inkColor)
                     .focused(focused, equals: todo.id)
+                    .keepsFocus(Caret.todo(todo.id), isFocused: focused.wrappedValue == todo.id) { focused.wrappedValue = todo.id }
                     .onSubmit(onSubmit)
                 strike
             }

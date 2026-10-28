@@ -126,6 +126,7 @@ struct CanvasView: View {
             }
             #endif
         }
+        .modifier(KeepsCanvasScroll())
         #if os(macOS)
         .onPasteCommand(of: PasteBridge.readableTypes) { providers in
             PasteBridge.read(providers: providers) { contents in
@@ -597,5 +598,41 @@ struct Squiggle: Shape {
                           control2: CGPoint(x: x0 + (x1 - x0) * 0.7, y: up ? 0 : h))
         }
         return path
+    }
+}
+
+/// Keeps the canvas's scroll offset in `AppState.canvasOffset`, so a fold or unfold (which rebuilds
+/// the sheet in the other layout) lands on the same part of the sheet. Needs iOS 18 / macOS 15
+/// (`ScrollPosition`, `onScrollGeometryChange`); before that the canvas starts at the top left.
+struct KeepsCanvasScroll: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18, macOS 15, *) {
+            content.modifier(CanvasScrollKeeper())
+        } else {
+            content
+        }
+    }
+}
+
+@available(iOS 18, macOS 15, *)
+private struct CanvasScrollKeeper: ViewModifier {
+    @EnvironmentObject var state: AppState
+    @State private var position = ScrollPosition()
+    /// Offsets reported before the saved one is put back (the first layout, at zero) aren't recorded.
+    @State private var restored = false
+
+    func body(content: Content) -> some View {
+        content
+            .scrollPosition($position)
+            .onScrollGeometryChange(for: CGPoint.self, of: { $0.contentOffset }) { _, offset in
+                guard restored, let id = state.current?.id else { return }
+                state.canvasOffset = (id, offset)
+            }
+            .onAppear {
+                if let saved = state.canvasOffset, saved.sheetID == state.current?.id {
+                    position.scrollTo(point: saved.point)
+                }
+                restored = true
+            }
     }
 }

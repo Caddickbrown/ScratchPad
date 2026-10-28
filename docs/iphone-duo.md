@@ -27,11 +27,15 @@ scene, inside `#if os(macOS)`.
   you stay on the sheet, not the rail. Unfolding shows it in the split view.
 - **The to-do column**: the slide-over and the phone's to-do sheet share
   `state.showTodoSheet`, so whichever is open stays open across the fold.
-- **The caret**: text and code blocks keep their focus and caret in
-  `AppState.caret` (`BlockTextEditor` in `BlockViews.swift`), and the rebuilt
-  editor takes both back. The caret position needs iOS 18
-  (`TextEditor(text:selection:)`); on iOS 17 only the focus returns. Table cells,
-  link fields, the title and to-do rows don't keep it yet.
+- **The caret**: every text field keeps its focus and caret in `AppState.caret`
+  (`keepsFocus` and `KeptTextField` in `BlockViews.swift`): text and code blocks,
+  table cells, a link's title and address, the sheet title and to-do rows. The
+  rebuilt field takes both back. The caret position needs iOS 18
+  (`TextEditor`/`TextField(text:selection:)`); the package targets iOS 17, where
+  only the focus returns. The table's formula bar is not kept (its cell is).
+- **The canvas scroll**: `AppState.canvasOffset` keeps the offset per sheet
+  (`KeepsCanvasScroll` in `CanvasView.swift`, iOS 18 `ScrollPosition`); on iOS 17
+  the canvas starts at the top left again. The to-do list's own scroll is not kept.
 
 ## Waits on the iOS 27.1 SDK / a device
 
@@ -40,4 +44,6 @@ scene, inside `#if os(macOS)`.
   set the selection again after focusing.
 - Check the toolbars in their vertical 27.1 form; the To-do button is a system
   toolbar item, so it should follow.
+- Check the canvas offset survives: if the old layout reports a clamped offset
+  while it is torn down, record only while the sheet is not mid-resize.
 - 760 pt is a guess; tune it on a device.
