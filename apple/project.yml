@@ -28,6 +28,16 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         NSHumanReadableCopyright: ""
+        # Declaring the external-display scene stops iOS mirroring the app onto a monitor and gives
+        # Scratchpad its own window there (monitor mode, Sources/ScratchpadApp/MonitorDisplay.swift).
+        # The application role is left out: SwiftUI's WindowGroup supplies it. Multiple scenes must
+        # be on for a second scene at all; on iPad that also allows several Scratchpad windows.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleExternalDisplayNonInteractive:
+              - UISceneConfigurationName: External Display
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).MonitorSceneDelegate
     entitlements:
       path: Resources/Scratchpad.entitlements
       properties:

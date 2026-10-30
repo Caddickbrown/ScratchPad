@@ -27,6 +27,7 @@ Full behaviour spec: `docs/v0.2-spec.md`. Design canvas: https://claude.ai/artif
 - **Export** (Ctrl/Cmd-E): the sheet as a PNG in light or dark, to-dos as Markdown checkboxes, or everything as one `.scratchpad` archive, Markdown or JSON file. Import archives from Settings.
 - **Whimsy**: ticks pop and spray ink, clearing the list stamps it ALL CLEAR, and new sheets tear off like the paper pad. Settings has Full, Subtle and Off, and the system's Reduce motion turns it off.
 - **Dark mode**: follows the system, with a System, Light or Dark override.
+- **Monitor mode (iPhone / iPad)**: plug into a monitor and it shows the whole sheet as a whiteboard, with the to-dos at its side; the phone is a window onto it, framed on the monitor, and panning moves the frame. See `docs/monitor-mode.md`.
 
 ## Storage
 
