@@ -31,6 +31,8 @@ struct RootView: View {
             if compact { phone } else { desktop }
         }
         #if os(iOS)
+        .onAppear { MonitorModel.shared.attach(state) }
+        .onChange(of: scheme, initial: true) { _, s in MonitorModel.shared.colorScheme = s }
         .onChange(of: sizeClass) { _, newValue in
             state.flush()
             phonePath = newValue == .compact ? (state.current.map { [$0.id] } ?? []) : []
