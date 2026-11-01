@@ -51,6 +51,10 @@ final class AppState: ObservableObject {
     @Published var showImport = false
     @Published var showSettings = false
     @Published var notice: String?
+    /// The sheet waiting on "Delete this sheet?".
+    @Published var confirmingDelete: Pad?
+    /// A sheet just made (new, pinned or duplicate), for the iPhone to push it open.
+    @Published var createdSheetID: String?
     /// Set when a new sheet should focus its title; the header clears it.
     @Published var focusTitlePending = false
 
@@ -163,6 +167,7 @@ final class AppState: ObservableObject {
             current = pad
             if !hadDay && pad.todos.contains(where: { $0.carriedFrom != nil }) { markHop(pad.id) }
             focusTitlePending = true
+            createdSheetID = pad.id
         } catch { self.error = error.localizedDescription }
     }
 
@@ -173,6 +178,7 @@ final class AppState: ObservableObject {
             refreshList()
             selectedBlockID = nil
             current = pad
+            createdSheetID = pad.id
         } catch { self.error = error.localizedDescription }
     }
 
@@ -185,6 +191,25 @@ final class AppState: ObservableObject {
             selectedBlockID = nil
             current = copy
             focusTitlePending = true
+            createdSheetID = copy.id
+        } catch { self.error = error.localizedDescription }
+    }
+
+    /// Deletes a sheet's file for good (its pasted files stay in assets/). Deleting the open sheet
+    /// opens the newest one left, or today's afresh when none is.
+    func deleteSheet(_ id: String) {
+        let wasOpen = current?.id == id
+        if wasOpen { saveTask?.cancel(); dirty = false }
+        do {
+            try store.delete(id)
+            if deleted?.sheetID == id { deleted = nil }
+            refreshList()
+            if wasOpen {
+                selectedBlockID = nil
+                closeHeaderPopover()
+                if let next = pads.first.flatMap({ try? store.load($0.id) }) { current = next } else { current = nil; openToday() }
+            }
+            notice = "Sheet deleted"
         } catch { self.error = error.localizedDescription }
     }
 

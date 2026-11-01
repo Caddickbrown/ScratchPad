@@ -19,9 +19,11 @@ public enum TagSort: String, CaseIterable, Identifiable, Sendable {
 }
 
 public enum SidebarMode: String, CaseIterable, Identifiable, Sendable {
-    case byDay, byTag
+    case byDay, byMonth, recent, byTag
     public var id: String { rawValue }
-    public var label: String { self == .byDay ? "By day" : "By tag" }
+    public var label: String {
+        switch self { case .byDay: return "By day"; case .byMonth: return "By month"; case .recent: return "Recent"; case .byTag: return "By tag" }
+    }
 }
 
 public enum Sidebar {
@@ -35,6 +37,26 @@ public enum Sidebar {
             else { groups.append(SheetGroup(id: d, label: DayLabel.group(d, today: today), detail: DayLabel.shortDate(d), sheets: [p])) }
         }
         return groups
+    }
+
+    /// Dated sheets grouped by month (`October 2026`), newest first; the detail is the sheet count.
+    public static func byMonth(_ pads: [Pad]) -> [SheetGroup] {
+        let dated = pads.filter { !$0.pinned && $0.date != nil }.sorted(by: PadStore.newestFirst)
+        var groups: [SheetGroup] = []
+        for p in dated {
+            guard let parts = DayMath.parts(p.date!) else { continue }
+            let id = String(p.date!.prefix(7))
+            if groups.last?.id == id { groups[groups.count - 1].sheets.append(p) }
+            else { groups.append(SheetGroup(id: id, label: DayLabel.monthTitle(year: parts.year, month: parts.month), detail: "", sheets: [p])) }
+        }
+        return groups.map { var g = $0; g.detail = String(g.sheets.count); return g }
+    }
+
+    /// Every dated sheet in one group, most recently edited first, whatever its date.
+    public static func recent(_ pads: [Pad]) -> [SheetGroup] {
+        let dated = pads.filter { !$0.pinned && $0.date != nil }
+            .sorted { $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : PadStore.newestFirst($0, $1) }
+        return dated.isEmpty ? [] : [SheetGroup(id: "recent", label: "Recently edited", detail: String(dated.count), sheets: dated)]
     }
 
     /// One group per tag (a sheet appears under each of its tags), Untagged last.

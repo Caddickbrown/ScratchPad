@@ -18,10 +18,11 @@ Design canvas (desktop light and dark, iPhone, components): https://claude.ai/ar
 Full behaviour spec: `docs/v0.2-spec.md`. Design canvas: https://claude.ai/artifact/Lr6cgFti87ULk2zK8U9G8d
 
 - **Sheets, several a day.** New sheet (Ctrl/Cmd-N) always makes one, dated today, with the current tags. Its menu adds New sheet on a date, New pinned sheet and Duplicate.
-- **By day or by tag.** The sidebar groups sheets by day, or by tag sorted A to Z, by count or by recent use. A sheet can carry several tags.
+- **By day, month, recent or tag.** The sidebar groups sheets by day, by month, as one list most recently edited first, or by tag sorted A to Z, by count or by recent use. A sheet can carry several tags. An untitled sheet's row shows its first line of text.
+- **Delete a sheet** from its row (swipe or context menu) or the sheet's menu, after a confirmation. Its pasted files stay in `assets/`.
 - **Date picker** on the DATE box. Days with sheets show a dot, and you can type `fri`, `15 oct` or `+3`.
 - **Paste decides the block**: image, file, HTML or tab-separated table, bare URL, fenced code, else text.
-- **Blocks**: drag the edge to move, drag a corner to resize (Shift keeps the ratio), rotate from the toolbar, pick a font (Sans, Serif, Mono, Hand), duplicate, delete with an 8 second undo.
+- **Blocks**: drag the edge to move (a dashed outline shows where it will land), drag a corner to resize (Shift keeps the ratio), rotate from the toolbar, pick a font (Sans, Serif, Mono, Hand), duplicate, delete with an 8 second undo.
 - **Tables**: per-column widths (drag or double-click the line between letters), and formulas with `+ - * /`, cell references, and SUM, AVG, MIN, MAX and COUNT.
 - **To-dos**: live count, a grip to drag rows (reorder, drop on the sheet, or drop on another sheet), and sorting by Manual, Open first, Overdue first, A to Z or Oldest first, with "Done sinks to the bottom". Unfinished rows carry over to the next day's first sheet.
 - **Export** (Ctrl/Cmd-E): the sheet as a PNG in light or dark, to-dos as Markdown checkboxes, or everything as one `.scratchpad` archive, Markdown or JSON file. Import archives from Settings.

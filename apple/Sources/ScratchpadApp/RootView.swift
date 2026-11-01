@@ -37,7 +37,23 @@ struct RootView: View {
             state.flush()
             phonePath = newValue == .compact ? (state.current.map { [$0.id] } ?? []) : []
         }
+        .onChange(of: state.createdSheetID) { _, id in
+            // A sheet made from the iPhone's rail opens straight away, title focused for typing.
+            guard let id else { return }
+            state.createdSheetID = nil
+            if compact { phonePath = [id] }
+        }
         #endif
+        .alert(deleteTitle, isPresented: Binding(get: { state.confirmingDelete != nil }, set: { if !$0 { state.confirmingDelete = nil } }),
+               presenting: state.confirmingDelete) { pad in
+            Button("Delete", role: .destructive) {
+                if phonePath.contains(pad.id) { phonePath = [] }
+                animate(motion.delete) { state.deleteSheet(pad.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { pad in
+            Text(deleteMessage(pad))
+        }
         .alert("Something went wrong", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
             Button("OK") { state.error = nil }
         } message: { Text(state.error ?? "") }
@@ -81,6 +97,18 @@ struct RootView: View {
         }
     }
 
+    private var deleteTitle: String {
+        guard let pad = state.confirmingDelete else { return "" }
+        return pad.title.trimmingCharacters(in: .whitespaces).isEmpty ? "Delete this sheet?" : "Delete \u{201C}\(pad.displayTitle)\u{201D}?"
+    }
+
+    private func deleteMessage(_ pad: Pad) -> String {
+        let what = [pad.blocks.count == 1 ? "1 block" : "\(pad.blocks.count) blocks",
+                    pad.filledCount == 1 ? "1 to-do" : "\(pad.filledCount) to-dos"].joined(separator: " and ")
+        let when = pad.date.map { " from \(DayLabel.longDate($0))" } ?? ""
+        return "The sheet\(when) and its \(what) go for good. This can\u{2019}t be undone."
+    }
+
     // MARK: Layouts
 
     private var columns: Binding<NavigationSplitViewVisibility> {
@@ -110,19 +138,15 @@ struct RootView: View {
                 #endif
                 NewSheetMenu()
             }
+            .plainBackground()
         }
+        .tint(p.ink)
         .background(p.desk)
     }
 
     private var phone: some View {
         NavigationStack(path: $phonePath) {
             RailView()
-                .toolbar {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        Button { state.showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
-                        NewSheetMenu()
-                    }
-                }
                 .navigationDestination(for: String.self) { id in
                     SheetStage(compact: true)
                         .onAppear { state.open(id) }
@@ -135,9 +159,16 @@ struct RootView: View {
                                     Divider()
                                     Button { state.flush(); state.showExport = true } label: { Label("Export…", systemImage: "square.and.arrow.up") }
                                     Button { state.showImport = true } label: { Label("Import archive…", systemImage: "square.and.arrow.down") }
-                                } label: { Label("More", systemImage: "ellipsis.circle") }
+                                    Divider()
+                                    Button(role: .destructive) { state.confirmingDelete = state.current } label: { Label("Delete this sheet…", systemImage: "trash") }
+                                } label: { Label("More", systemImage: "ellipsis") }
                             }
+                            .plainBackground()
                         }
+                        .tint(p.ink)
+                        #if os(iOS)
+                        .navigationBarTitleDisplayMode(.inline)
+                        #endif
                         .sheet(isPresented: $state.showTodoSheet) {
                             Themed { TodoColumnView(compact: true).environmentObject(state) }
                                 .presentationDetents([.fraction(0.32), .large])
@@ -161,6 +192,14 @@ struct RootView: View {
     private func insertBlock(_ kind: BlockKind) {
         let font = BlockFont(rawValue: UserDefaults.standard.string(forKey: SettingsKey.defaultFont) ?? "") ?? .sans
         animate(motion.fall) { state.insert(kind, font: font) }
+    }
+}
+
+extension ToolbarContent {
+    /// Drops the glass capsule iOS 26 draws behind toolbar buttons, so they sit on the paper as
+    /// plain ink icons, like the rest of the app's chrome.
+    @ToolbarContentBuilder func plainBackground() -> some ToolbarContent {
+        if #available(iOS 26, macOS 26, *) { sharedBackgroundVisibility(.hidden) } else { self }
     }
 }
 
@@ -210,14 +249,21 @@ struct SheetStage: View {
 struct NewSheetMenu: View {
     @EnvironmentObject var state: AppState
     @Environment(\.motion) var motion
+    /// Duplicate and Delete act on the open sheet, so they are left off the iPhone's rail, where none shows.
+    var showsSheetActions = true
 
     var body: some View {
         Menu {
             Button { newToday() } label: { Label("New sheet today", systemImage: "doc.badge.plus") }
             Button { state.askingNewOnDate = true } label: { Label("New sheet on a date…", systemImage: "calendar.badge.plus") }
             Button { state.askingPinned = true } label: { Label("New pinned sheet", systemImage: "pin") }
-            Button { animate(motion.peel) { state.duplicateCurrent() } } label: { Label("Duplicate this sheet", systemImage: "plus.square.on.square") }
-                .disabled(state.current == nil)
+            if showsSheetActions {
+                Button { animate(motion.peel) { state.duplicateCurrent() } } label: { Label("Duplicate this sheet", systemImage: "plus.square.on.square") }
+                    .disabled(state.current == nil)
+                Divider()
+                Button(role: .destructive) { state.confirmingDelete = state.current } label: { Label("Delete this sheet…", systemImage: "trash") }
+                    .disabled(state.current == nil)
+            }
         } label: {
             Label("New sheet", systemImage: "plus")
         } primaryAction: {

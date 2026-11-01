@@ -489,6 +489,25 @@ final class SidebarTests: XCTestCase {
         XCTAssertEqual(Sidebar.pinned(pads).map(\.id), ["p"])
     }
 
+    func testByMonthAndRecent() {
+        let pads = [pad("a", "2026-09-30", updated: 9), pad("b", "2026-10-13", updated: 1), pad("c", "2026-10-02", updated: 5), pad("p", nil, updated: 20, pinned: true)]
+        let months = Sidebar.byMonth(pads)
+        XCTAssertEqual(months.map(\.label), ["October 2026", "September 2026"])
+        XCTAssertEqual(months[0].sheets.map(\.id), ["b", "c"])
+        XCTAssertEqual(months[0].detail, "2")
+        XCTAssertEqual(Sidebar.recent(pads).first?.sheets.map(\.id), ["a", "c", "b"])
+        XCTAssertTrue(Sidebar.recent([]).isEmpty)
+    }
+
+    func testPreviewIsTheTopTextLineThenTheFirstTodo() {
+        var p = Pad.dated("2026-10-13")
+        XCTAssertNil(p.preview)
+        p.todos = [Todo(text: "Ring the bank")]
+        XCTAssertEqual(p.preview, "Ring the bank")
+        p.blocks = [Block(kind: .text, x: 0, y: 200, w: 100, text: "Lower"), Block(kind: .text, x: 0, y: 24, w: 100, text: "\n  Shopping list \nmilk")]
+        XCTAssertEqual(p.preview, "Shopping list")
+    }
+
     func testByTagSorts() {
         let pads = [pad("a", "2026-10-12", tags: ["zeta", "work"], updated: 1),
                     pad("b", "2026-10-13", tags: ["work"], updated: 2),

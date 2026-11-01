@@ -285,6 +285,21 @@ public struct Pad: Codable, Identifiable, Equatable, Sendable {
         return t.isEmpty ? "Untitled sheet" : t
     }
 
+    /// What an untitled sheet says, for its sidebar row: the first line of its top text block
+    /// (top to bottom, then left to right), else its first to-do. Nil when there is nothing yet.
+    public var preview: String? {
+        let texts = blocks.filter { $0.kind == .text || $0.kind == .code }
+            .sorted { ($0.y, $0.x) < ($1.y, $1.x) }
+            .compactMap(\.text) + todos.filter(\.isFilled).map(\.text)
+        for t in texts {
+            if let line = t.split(whereSeparator: \.isNewline).lazy
+                .map({ $0.trimmingCharacters(in: .whitespaces) }).first(where: { !$0.isEmpty }) {
+                return String(line.prefix(80))
+            }
+        }
+        return nil
+    }
+
     /// Case-insensitive search across title, tags, id, block text, table cells, file names, URLs,
     /// captions and to-do text. A leading `#` searches tags the same way.
     public func matches(_ query: String) -> Bool {

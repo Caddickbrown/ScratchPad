@@ -21,6 +21,7 @@ struct ScratchpadApp: App {
                 Button("New sheet on a date…") { state.askingNewOnDate = true }.keyboardShortcut("n", modifiers: [.command, .option])
                 Button("New pinned sheet") { state.askingPinned = true }
                 Button("Duplicate this sheet") { state.duplicateCurrent() }.keyboardShortcut("d", modifiers: [.command, .shift])
+                Button("Delete this sheet…") { state.confirmingDelete = state.current }
                 Divider()
                 Button("Import archive…") { state.showImport = true }.keyboardShortcut("i", modifiers: [.command, .shift])
                 Button("Export…") { state.flush(); state.showExport = true }.keyboardShortcut("e")
