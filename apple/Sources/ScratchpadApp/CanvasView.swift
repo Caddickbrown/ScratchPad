@@ -77,6 +77,10 @@ struct CanvasView: View {
                 if blocks.isEmpty {
                     EmptySheetHint().allowsHitTesting(false)
                 }
+                if let m = moving, let b = blocks.first(where: { $0.id == m.id }) {
+                    LandingGuide(block: b, height: height(of: b), offset: m.t, snap: !Modifiers.option)
+                        .zIndex(1.5)
+                }
                 ForEach(blocks) { block in
                     CanvasBlock(
                         block: resizing?.id == block.id ? resizing! : block,
@@ -207,6 +211,34 @@ struct CanvasView: View {
     }
 }
 
+/// While a block is dragged: a dashed outline where it will land when let go, on the snapped grid
+/// point, so the block can be placed by its outline rather than by eye. The block itself stays square
+/// to the page (no tilt) while it moves.
+struct LandingGuide: View {
+    @Environment(\.palette) var p
+    let block: Block
+    let height: CGFloat
+    let offset: CGSize
+    let snap: Bool
+
+    private var origin: CGPoint {
+        let x = CGFloat(block.x) + offset.width, y = CGFloat(block.y) + offset.height
+        return CGPoint(x: max(0, snap ? CGFloat(Block.snapped(Int(x))) : x.rounded()),
+                       y: max(0, snap ? CGFloat(Block.snapped(Int(y))) : y.rounded()))
+    }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(p.accent.opacity(0.06))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(p.accent.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
+            .frame(width: CGFloat(block.w), height: max(24, height))
+            .rotationEffect(.degrees(block.rotation))
+            .offset(x: origin.x, y: origin.y)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
 struct DotGrid: View {
     let color: Color
     var body: some View {
@@ -281,11 +313,6 @@ struct CanvasBlock: View {
         return 0
     }
 
-    private var tilt: Double {
-        guard isMoving, motion.isFull, moveOffset.width != 0 else { return 0 }
-        return moveOffset.width > 0 ? -2 : 2
-    }
-
     var body: some View {
         BlockView(block: block, selected: selected)
             .frame(width: CGFloat(block.w), height: block.h.map { CGFloat($0) }, alignment: .topLeading)
@@ -298,7 +325,7 @@ struct CanvasBlock: View {
             .overlay { if ripple { Ripple().padding(-6) } }
             .overlay { band }
             .overlay { if selected { chrome } }
-            .rotationEffect(.degrees(block.rotation + tilt))
+            .rotationEffect(.degrees(block.rotation))
             .keyframeAnimator(initialValue: Bounce(), trigger: drops) { content, v in
                 content.scaleEffect(v.scale)
             } keyframes: { _ in
