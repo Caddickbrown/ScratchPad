@@ -602,8 +602,8 @@ struct Squiggle: Shape {
 }
 
 /// Keeps the canvas's scroll offset in `AppState.canvasOffset`, so a fold or unfold (which rebuilds
-/// the sheet in the other layout) lands on the same part of the sheet. Uses `ScrollPosition`
-/// and `onScrollGeometryChange`.
+/// the sheet in the other layout) lands on the same part of the sheet, and on iOS tells an attached
+/// monitor where the phone's window is. Uses `ScrollPosition` and `onScrollGeometryChange`.
 struct KeepsCanvasScroll: ViewModifier {
     func body(content: Content) -> some View {
         content.modifier(CanvasScrollKeeper())
@@ -623,6 +623,14 @@ private struct CanvasScrollKeeper: ViewModifier {
                 guard restored, let id = state.current?.id else { return }
                 state.canvasOffset = (id, offset)
             }
+            #if os(iOS)
+            // The phone's window onto the sheet, framed on an attached monitor (MonitorDisplay.swift).
+            .onScrollGeometryChange(for: MonitorViewport.self, of: { MonitorViewport(visible: $0.visibleRect, content: $0.contentSize) }) { _, v in
+                guard let id = state.current?.id else { return }
+                MonitorModel.shared.canvasMoved(sheetID: id, v)
+            }
+            .onDisappear { MonitorModel.shared.canvasGone() }
+            #endif
             .onAppear {
                 if let saved = state.canvasOffset, saved.sheetID == state.current?.id {
                     position.scrollTo(point: saved.point)
