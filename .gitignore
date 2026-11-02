@@ -2,6 +2,9 @@
 *.xcodeproj
 *.xcworkspace
 xcuserdata/
+# Written by `xcodegen generate` from apple/project.yml
+apple/Resources/Info.plist
+apple/Resources/Scratchpad.entitlements
 apple/.build/
 apple/.swiftpm/
 linux/node_modules/
