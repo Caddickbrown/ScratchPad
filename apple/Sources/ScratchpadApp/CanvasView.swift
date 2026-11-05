@@ -446,7 +446,6 @@ struct BlockToolbar: View {
     let onMove: (CGSize) -> Void
     let onMoveEnd: (CGSize) -> Void
     let onDelete: () -> Void
-    @State private var fontOpen = false
     @State private var rotateStart: (pointer: Double, rotation: Double)?
     @State private var gripHovers = 0
 
@@ -470,7 +469,7 @@ struct BlockToolbar: View {
                 .help("Drag to move")
                 .accessibilityLabel("Move")
 
-            Button { fontOpen = true } label: {
+            Button { state.showFontPanel = true } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "textformat")
                     Text("\(block.font.label) \(block.fontSize)").font(Fonts.ui(12))
@@ -479,7 +478,7 @@ struct BlockToolbar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .popover(isPresented: $fontOpen, arrowEdge: .bottom) {
+            .popover(isPresented: $state.showFontPanel, arrowEdge: .bottom) {
                 Themed {
                     FontPanel(blockID: block.id)
                         .environmentObject(state)

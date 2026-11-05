@@ -50,6 +50,8 @@ final class AppState: ObservableObject {
     @Published var showExport = false
     @Published var showImport = false
     @Published var showSettings = false
+    /// The block toolbar's font popover. Here rather than in the toolbar so Esc can close it.
+    @Published var showFontPanel = false
     @Published var notice: String?
     /// The sheet waiting on "Delete this sheet?".
     @Published var confirmingDelete: Pad?
@@ -485,6 +487,23 @@ final class AppState: ObservableObject {
             guard self.current?.id == sheetID, self.headerPopover == nil else { return }
             self.headerPopover = pending
         }
+    }
+
+    // MARK: Esc
+
+    /// Closes the frontmost dialog, popover or sheet: one per call, and false if none was open.
+    func closeFrontmost() -> Bool {
+        if error != nil { error = nil; return true }
+        if confirmingDelete != nil { confirmingDelete = nil; return true }
+        if askingPinned { askingPinned = false; return true }
+        if showFontPanel { showFontPanel = false; return true }
+        if headerPopover != nil { closeHeaderPopover(); return true }
+        if showImport { showImport = false; return true }
+        if showExport { showExport = false; return true }
+        if askingNewOnDate { askingNewOnDate = false; return true }
+        if showSettings { showSettings = false; return true }
+        if showTodoSheet { showTodoSheet = false; return true }
+        return false
     }
 
     func flush() {

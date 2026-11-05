@@ -17,6 +17,11 @@ struct RootView: View {
     /// The iPhone stack's path: the open sheet is pushed onto it when the window turns compact
     /// (folding an iPhone Duo), so the fold keeps you on the sheet rather than the rail.
     @State private var phonePath: [String] = []
+    #if os(iOS)
+    /// Whether a monitor is attached, for Esc. Not an observed `MonitorModel`: that changes on every
+    /// scroll, and this view would redraw with it.
+    @State private var monitorAttached = false
+    #endif
 
     private var compact: Bool {
         #if os(iOS)
@@ -32,6 +37,8 @@ struct RootView: View {
         }
         #if os(iOS)
         .onAppear { MonitorModel.shared.attach(state) }
+        .onReceive(MonitorModel.shared.$isConnected) { monitorAttached = $0 }
+        .background { if monitorAttached { MonitorEscape(stepBack: stepBack) } }
         .onChange(of: scheme, initial: true) { _, s in MonitorModel.shared.colorScheme = s }
         .onChange(of: sizeClass) { _, newValue in
             state.flush()
@@ -108,6 +115,22 @@ struct RootView: View {
         let when = pad.date.map { " from \(DayLabel.longDate($0))" } ?? ""
         return "The sheet\(when) and its \(what) go for good. This can\u{2019}t be undone."
     }
+
+    #if os(iOS)
+    /// Esc on a keyboard while a monitor is attached: one step towards the sheet list, so pressing
+    /// it repeatedly always ends there. Whatever is in front closes first, then the caret leaves
+    /// the text, then the block is let go of, then the sheet closes, then the search clears.
+    /// With no sheet list of its own to return to, a wide layout brings the rail back.
+    private func stepBack() {
+        if state.askingPinned { pinnedTitle = "" }
+        if state.closeFrontmost() { return }
+        if MonitorEscape.endTyping() { state.caret = nil; return }
+        if state.selectedBlockID != nil { state.selectedBlockID = nil; return }
+        if compact && !phonePath.isEmpty { phonePath = []; return }
+        if !state.searchText.isEmpty { state.searchText = ""; return }
+        if !compact { storedColumns = .all }
+    }
+    #endif
 
     // MARK: Layouts
 

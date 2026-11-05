@@ -36,6 +36,11 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
 - **Appearance:** an external-display scene doesn't follow the device, so the app pushes its
   resolved colour scheme to the monitor.
 - **The phone stays awake** while a monitor is attached.
+- **Esc goes home.** With a keyboard on the phone, each Esc takes one step towards the sheet list,
+  from anywhere: a dialog, popover, picker or sheet closes first, then the caret leaves the text,
+  then the block is deselected, then the sheet closes, then the search clears. Further presses do
+  nothing. In a wide layout (iPad), which has no list to return to, the last step brings the rail
+  back. Only while a monitor is attached: `MonitorEscape`, `RootView.stepBack`.
 
 ## Plumbing
 
