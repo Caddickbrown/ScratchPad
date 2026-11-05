@@ -65,6 +65,8 @@ struct MonitorHold: Equatable {
     /// Where the phone's window sits, for the sheet it is on. Nil while no canvas is showing
     /// (the iPhone's sheet list, say), and then the monitor draws no frame.
     @Published private(set) var viewport: (sheetID: String, rect: MonitorViewport)?
+    /// The phone is on its sheet list, so the monitor shows the list too (`MonitorHome`).
+    @Published var atHome = false
     /// The block being dragged or resized on the phone, if any.
     @Published private(set) var hold: MonitorHold?
     let live = MonitorLive()
@@ -239,7 +241,7 @@ struct MonitorRoot: View {
         Themed {
             Group {
                 if let state = model.state {
-                    MonitorBoard(viewport: model.viewport, hold: model.hold).environmentObject(state)
+                    MonitorBoard(viewport: model.viewport, hold: model.hold, atHome: model.atHome).environmentObject(state)
                 } else {
                     Color.clear
                 }
@@ -271,13 +273,16 @@ struct MonitorBoard: View {
     @Environment(\.palette) var p
     let viewport: (sheetID: String, rect: MonitorViewport)?
     let hold: MonitorHold?
+    let atHome: Bool
 
     var body: some View {
         GeometryReader { geo in
             let m = MonitorMetrics(size: geo.size)
             ZStack {
                 p.desk
-                if let pad = state.current {
+                if atHome {
+                    MonitorHome(metrics: m).padding(m.padding)
+                } else if let pad = state.current {
                     VStack(alignment: .leading, spacing: m.padding * 0.5) {
                         MonitorHeader(pad: pad, metrics: m)
                         HStack(alignment: .top, spacing: m.padding) {
@@ -293,6 +298,36 @@ struct MonitorBoard: View {
                 }
             }
         }
+    }
+}
+
+/// The phone's sheet list, on the monitor: where Esc ends up, so it shows on the screen being
+/// watched. Newest edits first, in columns, narrowing as the phone's search does.
+private struct MonitorHome: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.palette) var p
+    let metrics: MonitorMetrics
+
+    private var sheets: [Pad] { Sidebar.recent(state.filteredPads).flatMap(\.sheets) + Sidebar.pinned(state.filteredPads) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: metrics.padding * 0.75) {
+            Text("Scratchpad").font(Fonts.ui(metrics.text * 2, .bold)).foregroundStyle(p.ink)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.column), spacing: metrics.text)], alignment: .leading, spacing: metrics.text) {
+                ForEach(sheets.prefix(48)) { pad in
+                    VStack(alignment: .leading, spacing: metrics.text * 0.2) {
+                        Text(pad.displayTitle).font(Fonts.ui(metrics.text, .medium)).foregroundStyle(p.ink).lineLimit(1)
+                        Text(pad.date ?? "Pinned").font(Fonts.mono(metrics.text * 0.7)).foregroundStyle(p.muted)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(metrics.text * 0.8)
+                    .background(p.paper, in: RoundedRectangle(cornerRadius: 6))
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
     }
 }
 

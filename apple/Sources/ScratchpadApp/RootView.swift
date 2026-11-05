@@ -39,6 +39,7 @@ struct RootView: View {
         .onAppear { MonitorModel.shared.attach(state) }
         .onReceive(MonitorModel.shared.$isConnected) { monitorAttached = $0 }
         .background { if monitorAttached { MonitorEscape(stepBack: stepBack) } }
+        .onChange(of: compact && phonePath.isEmpty, initial: true) { _, home in MonitorModel.shared.atHome = home }
         .onChange(of: scheme, initial: true) { _, s in MonitorModel.shared.colorScheme = s }
         .onChange(of: sizeClass) { _, newValue in
             state.flush()

@@ -32,7 +32,8 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
   (`MonitorFit`), with the blocks where they always were. Nothing is saved, and the phone's canvas
   doesn't change, which also means the phone can't pan into the extra paper; a block has to be
   dragged towards it, the canvas growing as it lands.
-- **No frame** while no canvas is showing (the iPhone's sheet list, say).
+- **Home.** While the iPhone is on its sheet list the monitor shows the list too (`MonitorHome`),
+  so going home shows on the screen being watched. In a wide layout the sheet stays up.
 - **Appearance:** an external-display scene doesn't follow the device, so the app pushes its
   resolved colour scheme to the monitor.
 - **The phone stays awake** while a monitor is attached.
