@@ -34,7 +34,6 @@ struct MonitorLiveBlock {
     var block: Block
     /// How far a move has carried it, in canvas points.
     var offset: CGSize = .zero
-    var height: CGFloat = 0
     var isMoving = false
 }
 
@@ -361,6 +360,8 @@ struct MonitorSheet: View {
     let selectedID: String?
     let viewport: MonitorViewport?
     let hold: MonitorHold?
+    /// Heights of blocks that size to their content, as drawn here.
+    @State private var heights: [String: CGFloat] = [:]
 
     static let minScale: CGFloat = 0.45
     static let maxScale: CGFloat = 1.6
@@ -369,14 +370,18 @@ struct MonitorSheet: View {
 
     private var overview: Bool { hold?.isMoving == true }
 
-    /// The canvas's own extent rule (`CanvasView.contentSize`), with unmeasured blocks at 120 pt.
-    /// The phone's measured extent wins when there is one.
+    private func height(of b: Block) -> CGFloat { b.h.map { CGFloat($0) } ?? heights[b.id] ?? 120 }
+
+    /// The canvas's own extent rule (`CanvasView.contentSize`), on the heights drawn here. The phone's
+    /// extent isn't used: it measures a text block's editor as far taller than its text, which
+    /// would shrink the sheet to `minScale`. Only the phone's window has to stay on the sheet.
     private var contentSize: CGSize {
-        let maxY = pad.blocks.map { CGFloat($0.y + ($0.h ?? 120)) }.max() ?? 0
+        let maxY = pad.blocks.map { CGFloat($0.y) + height(of: $0) }.max() ?? 0
         let maxX = pad.blocks.map { CGFloat($0.x + $0.w) }.max() ?? 0
         let own = CGSize(width: max(900, maxX + 240), height: max(720, maxY + 480))
         guard let v = viewport else { return own }
-        return CGSize(width: max(own.width, v.content.width), height: max(own.height, v.content.height))
+        return CGSize(width: max(own.width, min(v.visible.maxX, v.content.width)),
+                      height: max(own.height, min(v.visible.maxY, v.content.height)))
     }
 
     var body: some View {
@@ -392,12 +397,19 @@ struct MonitorSheet: View {
                 ForEach(pad.blocks.filter { $0.id != hold?.blockID }) { block in
                     MonitorBlock(block: block, selected: block.id == selectedID)
                 }
-                if hold != nil { MonitorLiveLayer(live: MonitorModel.shared.live) }
+                if let hold {
+                    MonitorLiveLayer(live: MonitorModel.shared.live, height: heights[hold.blockID] ?? 120)
+                }
                 if let v = viewport {
                     ViewportFrame(rect: v.visible, scale: scale, accent: p.accent)
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .onPreferenceChange(MonitorBlockHeights.self) { measured in
+                // A held block is drawn by the live layer and drops out of this; it keeps its height.
+                let all = heights.merging(measured) { $1 }
+                if all != heights { heights = all }
+            }
             .background(p.paper)
             .scaleEffect(scale, anchor: .topLeading)
             .frame(width: shown.width, height: shown.height, alignment: .topLeading)
@@ -428,11 +440,13 @@ struct MonitorSheet: View {
 /// The offset sits outside `MonitorBlock`, so a move shifts the block without rebuilding it.
 private struct MonitorLiveLayer: View {
     @ObservedObject var live: MonitorLive
+    /// The block's content height, for a block with none set.
+    let height: CGFloat
 
     var body: some View {
         if let held = live.current {
             if held.isMoving {
-                LandingGuide(block: held.block, height: held.height, offset: held.offset, snap: true)
+                LandingGuide(block: held.block, height: held.block.h.map { CGFloat($0) } ?? height, offset: held.offset, snap: true)
             }
             MonitorBlock(block: held.block, selected: true)
                 .shadow(color: .black.opacity(held.isMoving ? 0.22 : 0), radius: 14, y: 8)
@@ -475,6 +489,14 @@ private extension View {
     }
 }
 
+/// Blocks' drawn heights by id, gathered for the sheet's extent.
+private struct MonitorBlockHeights: PreferenceKey {
+    static let defaultValue: [String: CGFloat] = [:]
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
 /// One block, drawn read-only. Not `BlockView`: its editors keep focus and caret in `AppState`,
 /// and a second copy on the monitor would fight the phone's for them.
 private struct MonitorBlock: View {
@@ -486,6 +508,9 @@ private struct MonitorBlock: View {
         content
             .frame(width: CGFloat(block.w), height: block.h.map { CGFloat($0) }, alignment: .topLeading)
             .clipped()
+            .background(GeometryReader { g in
+                Color.clear.preference(key: MonitorBlockHeights.self, value: [block.id: g.size.height])
+            })
             .overlay {
                 if selected { Rectangle().stroke(p.accent, lineWidth: 1.5).padding(-3) }
             }

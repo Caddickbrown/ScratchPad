@@ -56,5 +56,8 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
 - Paste and new blocks land in the middle of the phone's window, not below everything.
 - Pinch the phone to zoom, which resizes the window.
 - Show the caret on the monitor, not just the selected block.
+- The phone measures a text block's editor as far taller than its text (`CanvasView.heights`), so
+  its canvas scrolls on past the content and its selection outline and landing guide run long. The
+  monitor measures its own blocks to stay clear of this, but the phone still has it.
 - Check on a device: whether the frame keeps up with a fast pan, how text sizes look on a 4K
   panel, and the TextEditor inset guesses (13 / 12 pt) in `MonitorBlock`.

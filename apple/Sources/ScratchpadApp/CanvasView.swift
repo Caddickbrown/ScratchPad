@@ -160,7 +160,7 @@ struct CanvasView: View {
             moving = (id, t)
         }
         #if os(iOS)
-        if let b = state.block(id) { showLive(MonitorLiveBlock(block: b, offset: t, height: height(of: b), isMoving: true)) }
+        if let b = state.block(id) { showLive(MonitorLiveBlock(block: b, offset: t, isMoving: true)) }
         #endif
     }
 
@@ -187,7 +187,7 @@ struct CanvasView: View {
         resizing = block.resized(corner: corner, dx: Double(t.width), dy: Double(t.height), startHeight: Double(start), keepAspect: Modifiers.shift)
         select(block.id, focusCanvas: true)
         #if os(iOS)
-        if let r = resizing { showLive(MonitorLiveBlock(block: r, height: height(of: r))) }
+        if let r = resizing { showLive(MonitorLiveBlock(block: r)) }
         #endif
     }
 
