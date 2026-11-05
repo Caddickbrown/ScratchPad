@@ -301,6 +301,9 @@ struct TableBlock: View {
                         var w = TableLayout.widths(for: block)
                         w[c] = max(TableLayout.minColumn, w[c] + Int(v.translation.width))
                         liveWidths = w
+                        #if os(iOS)
+                        showLive(w)
+                        #endif
                     }
                     .onEnded { _ in commitWidths(liveWidths) }
             )
@@ -312,14 +315,29 @@ struct TableBlock: View {
             .accessibilityLabel("Resize column \(Formula.columnName(c))")
     }
 
-    private func commitWidths(_ w: [Int]?) {
-        guard let w else { return }
+    private func withWidths(_ w: [Int]) -> Block {
         var b = block
         b.colWidths = w
         b.w = max(Block.minWidth, w.reduce(0, +))
-        block = b
-        liveWidths = nil
+        return b
     }
+
+    private func commitWidths(_ w: [Int]?) {
+        guard let w else { return }
+        block = withWidths(w)
+        liveWidths = nil
+        #if os(iOS)
+        MonitorModel.shared.blockLetGo()
+        #endif
+    }
+
+    #if os(iOS)
+    /// A column drag stays in `liveWidths` until it's let go; an attached monitor follows it here.
+    private func showLive(_ w: [Int]) {
+        guard let sheetID = state.current?.id else { return }
+        MonitorModel.shared.blockHeld(sheetID: sheetID, MonitorLiveBlock(block: withWidths(w)))
+    }
+    #endif
 
     private func formulaBar(_ eval: TableEvaluator) -> some View {
         let pos = focused ?? lastFocused
@@ -440,12 +458,20 @@ struct LinkBlock: View {
 
 @MainActor
 enum PlatformImage {
+    #if os(iOS)
+    /// A block's body runs on every touch of a resize, on the phone and again on a monitor; an
+    /// asset's file never changes, so it's read once. The system empties this under memory pressure.
+    private static let cache = NSCache<NSURL, UIImage>()
+    #endif
+
     static func load(_ url: URL) -> Image? {
         #if os(macOS)
         guard let img = NSImage(contentsOf: url) else { return nil }
         return Image(nsImage: img)
         #else
+        if let kept = cache.object(forKey: url as NSURL) { return Image(uiImage: kept) }
         guard let data = try? Data(contentsOf: url), let img = UIImage(data: data) else { return nil }
+        cache.setObject(img, forKey: url as NSURL)
         return Image(uiImage: img)
         #endif
     }

@@ -159,24 +159,51 @@ struct CanvasView: View {
         } else {
             moving = (id, t)
         }
+        #if os(iOS)
+        if let b = state.block(id) { showLive(MonitorLiveBlock(block: b, offset: t, height: height(of: b), isMoving: true)) }
+        #endif
     }
 
     private func moveEnded(_ id: String, _ t: CGSize) {
-        guard let b = state.block(id) else { moving = nil; return }
+        guard let b = state.block(id) else {
+            moving = nil
+            #if os(iOS)
+            MonitorModel.shared.blockLetGo()
+            #endif
+            return
+        }
         let snap = !Modifiers.option
         animate(motion.lift) {
             state.moveBlock(id, x: CGFloat(b.x) + t.width, y: CGFloat(b.y) + t.height, snap: snap)
             moving = nil
         }
+        #if os(iOS)
+        MonitorModel.shared.blockLetGo()
+        #endif
     }
 
     private func resizeChanged(_ block: Block, _ corner: Block.Corner, _ t: CGSize) {
         let start = block.h.map { CGFloat($0) } ?? heights[block.id] ?? 120
         resizing = block.resized(corner: corner, dx: Double(t.width), dy: Double(t.height), startHeight: Double(start), keepAspect: Modifiers.shift)
         select(block.id, focusCanvas: true)
+        #if os(iOS)
+        if let r = resizing { showLive(MonitorLiveBlock(block: r, height: height(of: r))) }
+        #endif
     }
 
+    #if os(iOS)
+    /// A drag or resize lives in this view's state until it's let go, so an attached monitor is
+    /// told about it here rather than through `AppState`, which would save on every touch.
+    private func showLive(_ held: MonitorLiveBlock) {
+        guard let sheetID = state.current?.id else { return }
+        MonitorModel.shared.blockHeld(sheetID: sheetID, held)
+    }
+    #endif
+
     private func resizeEnded() {
+        #if os(iOS)
+        defer { MonitorModel.shared.blockLetGo() }
+        #endif
         guard var r = resizing, let original = state.block(r.id) else { resizing = nil; return }
         if r.kind == .table {
             // Tables scale their columns to the new width.

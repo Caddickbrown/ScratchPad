@@ -9,7 +9,8 @@
 //  gesture: the canvas's own scroll is the window (`CanvasScrollKeeper` reports it here).
 //
 //  The monitor can't be touched, so it only draws. Editing stays on the phone, and the monitor
-//  follows: blocks, text as it is typed, the selected block, ticks in the to-do list.
+//  follows: blocks, text as it is typed, the selected block, ticks in the to-do list, and a block
+//  in the middle of a drag or a resize, which reaches `AppState` only when it's let go.
 //
 //  iOS only: the Mac app has its own windows.
 //
@@ -27,6 +28,29 @@ struct MonitorViewport: Equatable {
     var content: CGSize
 }
 
+/// A block in the phone's hands: as it is drawn right now, not yet in `AppState`.
+struct MonitorLiveBlock {
+    /// With a resize or a column drag already applied.
+    var block: Block
+    /// How far a move has carried it, in canvas points.
+    var offset: CGSize = .zero
+    var height: CGFloat = 0
+    var isMoving = false
+}
+
+/// The live block, on its own because it changes with every touch of a drag: only
+/// `MonitorLiveLayer` watches it, so a drag redraws that one block and not the board.
+@MainActor final class MonitorLive: ObservableObject {
+    @Published fileprivate(set) var current: MonitorLiveBlock?
+}
+
+/// Which block the phone has hold of. Changes only as a gesture starts and ends.
+struct MonitorHold: Equatable {
+    var sheetID: String
+    var blockID: String
+    var isMoving: Bool
+}
+
 /// Shared between the app's scene and the monitor's. A singleton because the monitor's window is
 /// built by a UIKit scene delegate, which can't reach the app scene's environment.
 @MainActor final class MonitorModel: ObservableObject {
@@ -41,6 +65,9 @@ struct MonitorViewport: Equatable {
     /// Where the phone's window sits, for the sheet it is on. Nil while no canvas is showing
     /// (the iPhone's sheet list, say), and then the monitor draws no frame.
     @Published private(set) var viewport: (sheetID: String, rect: MonitorViewport)?
+    /// The block being dragged or resized on the phone, if any.
+    @Published private(set) var hold: MonitorHold?
+    let live = MonitorLive()
 
     /// Kept while nothing is attached, so connecting draws the frame straight away.
     private var latest: (sheetID: String, rect: MonitorViewport)?
@@ -61,6 +88,20 @@ struct MonitorViewport: Equatable {
     func canvasGone() {
         latest = nil
         if isConnected, viewport != nil { viewport = nil }
+        blockLetGo()
+    }
+
+    /// Called on every touch of a drag or resize; cheap while no monitor is attached.
+    func blockHeld(sheetID: String, _ held: MonitorLiveBlock) {
+        guard isConnected else { return }
+        live.current = held
+        let next = MonitorHold(sheetID: sheetID, blockID: held.block.id, isMoving: held.isMoving)
+        if hold != next { hold = next }
+    }
+
+    func blockLetGo() {
+        if hold != nil { hold = nil }
+        if live.current != nil { live.current = nil }
     }
 
     func displayDidConnect() {
@@ -72,6 +113,7 @@ struct MonitorViewport: Equatable {
     func displayDidDisconnect() {
         isConnected = false
         viewport = nil
+        blockLetGo()
         updateIdleTimer()
     }
 
@@ -116,7 +158,7 @@ struct MonitorRoot: View {
         Themed {
             Group {
                 if let state = model.state {
-                    MonitorBoard(viewport: model.viewport).environmentObject(state)
+                    MonitorBoard(viewport: model.viewport, hold: model.hold).environmentObject(state)
                 } else {
                     Color.clear
                 }
@@ -147,6 +189,7 @@ struct MonitorBoard: View {
     @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
     let viewport: (sheetID: String, rect: MonitorViewport)?
+    let hold: MonitorHold?
 
     var body: some View {
         GeometryReader { geo in
@@ -158,7 +201,8 @@ struct MonitorBoard: View {
                         MonitorHeader(pad: pad, metrics: m)
                         HStack(alignment: .top, spacing: m.padding) {
                             MonitorSheet(pad: pad, selectedID: state.selectedBlockID,
-                                         viewport: viewport?.sheetID == pad.id ? viewport?.rect : nil)
+                                         viewport: viewport?.sheetID == pad.id ? viewport?.rect : nil,
+                                         hold: hold?.sheetID == pad.id ? hold : nil)
                             MonitorTodos(pad: pad, metrics: m).frame(width: m.column)
                         }
                     }
@@ -191,15 +235,22 @@ private struct MonitorHeader: View {
 }
 
 /// The sheet scaled to fit its space. Past `minScale` a big sheet would be unreadable, so it
-/// stays at that scale and keeps the phone's window in view instead.
+/// stays at that scale and keeps the phone's window in view instead, except while a block is being
+/// moved: then it shrinks as far as it takes, so the block can be placed against the whole sheet.
 struct MonitorSheet: View {
     @Environment(\.palette) var p
+    @Environment(\.motion) var motion
     let pad: Pad
     let selectedID: String?
     let viewport: MonitorViewport?
+    let hold: MonitorHold?
 
     static let minScale: CGFloat = 0.45
     static let maxScale: CGFloat = 1.6
+    /// The floor while a block is moving: past readable, but it only has to show where things are.
+    static let overviewScale: CGFloat = 0.05
+
+    private var overview: Bool { hold?.isMoving == true }
 
     /// The canvas's own extent rule (`CanvasView.contentSize`), with unmeasured blocks at 120 pt.
     /// The phone's measured extent wins when there is one.
@@ -215,14 +266,16 @@ struct MonitorSheet: View {
         GeometryReader { geo in
             let size = contentSize
             let fit = min(geo.size.width / size.width, geo.size.height / size.height)
-            let scale = min(Self.maxScale, max(Self.minScale, fit))
+            let scale = min(Self.maxScale, max(overview ? Self.overviewScale : Self.minScale, fit))
             let shown = CGSize(width: size.width * scale, height: size.height * scale)
             let shift = pan(shown: shown, space: geo.size, scale: scale)
             ZStack(alignment: .topLeading) {
                 DotGrid(color: p.dot).frame(width: size.width, height: size.height)
-                ForEach(pad.blocks) { block in
+                // The held block is left to the live layer, which draws it where the finger has it.
+                ForEach(pad.blocks.filter { $0.id != hold?.blockID }) { block in
                     MonitorBlock(block: block, selected: block.id == selectedID)
                 }
+                if hold != nil { MonitorLiveLayer(live: MonitorModel.shared.live) }
                 if let v = viewport {
                     ViewportFrame(rect: v.visible, scale: scale, accent: p.accent)
                 }
@@ -236,6 +289,7 @@ struct MonitorSheet: View {
             .offset(shift)
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .clipped()
+            .animation(motion.isOff ? nil : .easeInOut(duration: 0.2), value: overview)
         }
     }
 
@@ -249,6 +303,24 @@ struct MonitorSheet: View {
         }
         let v = viewport?.visible
         return CGSize(width: axis(shown.width, space.width, v?.midX), height: axis(shown.height, space.height, v?.midY))
+    }
+}
+
+/// The block in the phone's hands, redrawn on every touch while the sheet under it stands still:
+/// the block as the phone shows it and, for a move, the dashed outline of where it will land.
+/// The offset sits outside `MonitorBlock`, so a move shifts the block without rebuilding it.
+private struct MonitorLiveLayer: View {
+    @ObservedObject var live: MonitorLive
+
+    var body: some View {
+        if let held = live.current {
+            if held.isMoving {
+                LandingGuide(block: held.block, height: held.height, offset: held.offset, snap: true)
+            }
+            MonitorBlock(block: held.block, selected: true)
+                .shadow(color: .black.opacity(held.isMoving ? 0.22 : 0), radius: 14, y: 8)
+                .offset(held.offset)
+        }
     }
 }
 

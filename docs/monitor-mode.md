@@ -14,6 +14,13 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
 - **The monitor draws, the phone edits.** The external-display scene is non-interactive. The
   monitor observes the same `AppState`, so blocks, typing, the selected block and to-do ticks
   show up live.
+- **Drags and resizes are live too.** A move, a corner resize or a column drag stays in the
+  canvas's own state until it's let go, so it never reaches `AppState` mid-gesture (that would
+  save on every touch). The phone tells `MonitorModel` instead, on every touch: `MonitorLive`
+  holds the block, and only `MonitorLiveLayer` watches it, so a drag redraws that one block, with
+  its dashed landing outline, not the board. With no monitor attached the call returns at once.
+- **Moving a block shows the whole sheet.** A sheet too big to fit at 0.45× shrinks to fit for as
+  long as a block is moving, then goes back.
 - **Its own read-only block renderer** (`MonitorBlock`, `MonitorTable`). `BlockView`'s editors
   keep focus and caret in `AppState`, so a second copy on the monitor would fight the phone's.
   Tables show computed values. Images and files reuse `ImageBlock` and `FileBlock`.
