@@ -27,6 +27,11 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
 - **Scaling.** The sheet is scaled to fit, between 0.45× and 1.6×. A sheet too big to fit at
   0.45× stays at that scale and scrolls on the monitor to keep the phone's window centred,
   clamped to the sheet's edges.
+- **The paper fills the panel.** A sheet has no stored size or shape: its extent comes from its
+  blocks. So the monitor draws the paper out to the panel's edges at the scale the content fits
+  (`MonitorFit`), with the blocks where they always were. Nothing is saved, and the phone's canvas
+  doesn't change, which also means the phone can't pan into the extra paper; a block has to be
+  dragged towards it, the canvas growing as it lands.
 - **No frame** while no canvas is showing (the iPhone's sheet list, say).
 - **Appearance:** an external-display scene doesn't follow the device, so the app pushes its
   resolved colour scheme to the monitor.

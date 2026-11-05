@@ -234,7 +234,8 @@ private struct MonitorHeader: View {
     }
 }
 
-/// The sheet scaled to fit its space. Past `minScale` a big sheet would be unreadable, so it
+/// The sheet scaled to fit its space, the paper reaching past the content to fill what's left of
+/// the panel (`MonitorFit`), so a wide monitor gets a wide sheet. Past `minScale` a big sheet would be unreadable, so it
 /// stays at that scale and keeps the phone's window in view instead, except while a block is being
 /// moved: then it shrinks as far as it takes, so the block can be placed against the whole sheet.
 struct MonitorSheet: View {
@@ -264,9 +265,9 @@ struct MonitorSheet: View {
 
     var body: some View {
         GeometryReader { geo in
-            let size = contentSize
-            let fit = min(geo.size.width / size.width, geo.size.height / size.height)
-            let scale = min(Self.maxScale, max(overview ? Self.overviewScale : Self.minScale, fit))
+            let fit = MonitorFit(content: contentSize, space: geo.size,
+                                 least: overview ? Self.overviewScale : Self.minScale, most: Self.maxScale)
+            let size = fit.paper, scale = fit.scale
             let shown = CGSize(width: size.width * scale, height: size.height * scale)
             let shift = pan(shown: shown, space: geo.size, scale: scale)
             ZStack(alignment: .topLeading) {

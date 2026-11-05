@@ -682,3 +682,39 @@ final class ExportTests: XCTestCase {
         XCTAssertEqual(TodoExportScope.thisSheet.sheets(current: c, all: [a, b, c], today: "2026-10-13").map(\.id), [c.id])
     }
 }
+
+final class MonitorFitTests: XCTestCase {
+    private let wide = CGSize(width: 1440, height: 960)
+
+    func testPaperFillsAWidePanelAtTheContentsOwnScale() {
+        let fit = MonitorFit(content: CGSize(width: 900, height: 720), space: wide, least: 0.45, most: 1.6)
+        XCTAssertEqual(fit.scale, 960.0 / 720.0, accuracy: 0.0001)
+        XCTAssertEqual(fit.paper.width * fit.scale, wide.width, accuracy: 0.0001)
+        XCTAssertEqual(fit.paper.height * fit.scale, wide.height, accuracy: 0.0001)
+    }
+
+    func testPaperNeverCropsTheContent() {
+        let content = CGSize(width: 900, height: 8000)
+        let fit = MonitorFit(content: content, space: wide, least: 0.45, most: 1.6)
+        XCTAssertEqual(fit.scale, 0.45)
+        XCTAssertEqual(fit.paper.height, content.height)
+        XCTAssertEqual(fit.paper.width * fit.scale, wide.width, accuracy: 0.0001)
+    }
+
+    func testASmallSheetStopsAtTheCapAndThePaperStillFills() {
+        let fit = MonitorFit(content: CGSize(width: 900, height: 720), space: CGSize(width: 3000, height: 2000), least: 0.45, most: 1.6)
+        XCTAssertEqual(fit.scale, 1.6)
+        XCTAssertEqual(fit.paper.width * fit.scale, 3000, accuracy: 0.0001)
+    }
+
+    func testALowerFloorShowsTheWholeOfATallSheet() {
+        let fit = MonitorFit(content: CGSize(width: 900, height: 8000), space: wide, least: 0.05, most: 1.6)
+        XCTAssertEqual(fit.paper.height * fit.scale, wide.height, accuracy: 0.0001)
+    }
+
+    func testNoSpaceYetStaysFinite() {
+        let fit = MonitorFit(content: CGSize(width: 900, height: 720), space: .zero, least: 0.45, most: 1.6)
+        XCTAssertEqual(fit.scale, 0.45)
+        XCTAssertEqual(fit.paper, CGSize(width: 900, height: 720))
+    }
+}
