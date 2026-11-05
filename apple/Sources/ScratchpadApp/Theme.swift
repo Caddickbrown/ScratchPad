@@ -90,5 +90,9 @@ struct Themed<Content: View>: View {
             .environment(\.palette, Palette.forScheme(scheme))
             .environment(\.motion, motion)
             .animation(motion.isOff ? nil : .easeInOut(duration: 0.36), value: scheme)
+            #if os(iOS)
+            // Here because this wraps every sheet and popover, each a view tree of its own.
+            .onKeyPress(.escape) { MonitorEscapeController.heard() ? .handled : .ignored }
+            #endif
     }
 }

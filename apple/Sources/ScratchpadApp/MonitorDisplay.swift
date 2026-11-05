@@ -152,12 +152,11 @@ final class MonitorSceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 // MARK: - Esc
 
-/// Esc on the phone's keyboard, heard from anywhere while a monitor is attached. The key command
-/// sits on the window's root view controller, which every responder chain passes through: a text
-/// view's up its superviews, a sheet's or an alert's through whoever presented it. An alert with a
-/// Cancel button takes Esc itself, nearer the first responder, and the result is the same.
-/// A key needs a first responder to start from, and a closing sheet can leave none, so the
-/// controller here takes the job whenever nothing else has it.
+/// Esc on the phone's keyboard while a monitor is attached, heard two ways, as no one way reaches
+/// everywhere. With nothing being typed in, `MonitorEscapeController` holds first responder and has
+/// the key, whatever is presented over it. A field being typed in has first responder instead and
+/// the controller isn't in its chain, so `Themed`, which wraps the root and every sheet and popover,
+/// listens with `onKeyPress`. A field in an alert goes to the alert's own Cancel, with the same result.
 struct MonitorEscape: UIViewControllerRepresentable {
     let stepBack: () -> Void
 
@@ -175,38 +174,45 @@ struct MonitorEscape: UIViewControllerRepresentable {
 }
 
 final class MonitorEscapeController: UIViewController {
-    fileprivate static weak var active: MonitorEscapeController?
+    private static weak var active: MonitorEscapeController?
     var stepBack: () -> Void = {}
-    private weak var root: UIViewController?
     private var reclaim: Timer?
-    private let command: UIKeyCommand = {
-        let command = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(UIResponder.monitorEscape(_:)))
-        command.wantsPriorityOverSystemBehavior = true
-        return command
-    }()
 
     override var canBecomeFirstResponder: Bool { true }
+
+    override var keyCommands: [UIKeyCommand]? {
+        let command = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escape))
+        command.wantsPriorityOverSystemBehavior = true
+        return [command]
+    }
+
+    @objc private func escape() { stepBack() }
+
+    /// For `Themed`'s `onKeyPress`. False with no monitor attached, which leaves Esc to the system.
+    static func heard() -> Bool {
+        guard let active else { return false }
+        active.stepBack()
+        return true
+    }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         Self.active = self
-        root = view.window?.rootViewController
-        root?.addKeyCommand(command)
         becomeFirstResponder()
+        // A closing sheet or a field giving up the keyboard leaves no first responder, and then no
+        // key reaches the app. Take it back, but never from a field being typed in.
         reclaim?.invalidate()
         reclaim = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.view.window != nil, !self.isFirstResponder else { return }
-                // Never from a field being typed in, nor from an alert, which has its own keys.
-                let top = sequence(first: self.root) { $0?.presentedViewController }.compactMap { $0 }.last
-                if !(UIResponder.monitorFirstResponder() is UIKeyInput), !(top is UIAlertController) { self.becomeFirstResponder() }
+                if !(UIResponder.monitorFirstResponder() is UIKeyInput) { self.becomeFirstResponder() }
             }
         }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        root?.removeKeyCommand(command)
+        if Self.active === self { Self.active = nil }
         reclaim?.invalidate()
         reclaim = nil
     }
@@ -224,11 +230,6 @@ extension UIResponder {
     }
 
     @objc private func monitorCaptureFirstResponder() { UIResponder.captured = self }
-
-    /// On `UIResponder` because a key command's action goes to whichever responder first has it.
-    @objc fileprivate func monitorEscape(_ sender: UIKeyCommand) {
-        MonitorEscapeController.active?.stepBack()
-    }
 }
 
 // MARK: - Monitor views

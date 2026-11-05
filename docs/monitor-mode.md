@@ -59,5 +59,6 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
 - The phone measures a text block's editor as far taller than its text (`CanvasView.heights`), so
   its canvas scrolls on past the content and its selection outline and landing guide run long. The
   monitor measures its own blocks to stay clear of this, but the phone still has it.
-- Check on a device: whether the frame keeps up with a fast pan, how text sizes look on a 4K
+- Check on a device: Esc from a focused text block and from each sheet, popover and alert (the
+  simulator never delivers Esc to the app, so the key itself is unproven there), whether the frame keeps up with a fast pan, how text sizes look on a 4K
   panel, and the TextEditor inset guesses (13 / 12 pt) in `MonitorBlock`.
