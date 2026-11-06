@@ -73,11 +73,13 @@ struct RootView: View {
         .alert("New pinned sheet", isPresented: $state.askingPinned) {
             TextField("Title", text: $pinnedTitle)
             Button("Create") { state.newPinnedSheet(title: pinnedTitle); pinnedTitle = "" }
-            Button("Cancel", role: .cancel) { pinnedTitle = "" }
+            // Esc can land here, so the title stays for next time.
+            Button("Cancel", role: .cancel) {}
         }
         .sheet(isPresented: $state.askingNewOnDate) {
             Themed {
                 NewSheetOnDate { day in
+                    state.entryDrafts[Caret.newSheetDate] = nil
                     state.askingNewOnDate = false
                     animate(motion.peel) { state.newSheet(on: day) }
                 }
@@ -131,9 +133,7 @@ struct RootView: View {
             isSheetOpen: !phonePath.isEmpty, isSearching: !state.searchText.isEmpty,
             isRailShowing: storedColumns == .all)
         switch StepBack.next(context) {
-        case .closeFrontmost:
-            if state.askingPinned { pinnedTitle = "" }
-            state.closeFrontmost()
+        case .closeFrontmost: state.closeFrontmost()
         case .endTyping:
             MonitorEscape.endTyping()
             state.caret = nil
@@ -373,7 +373,7 @@ struct NewSheetOnDate: View {
             HStack {
                 Text("New sheet on a date").font(Fonts.ui(15, .semibold))
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { state.entryDrafts[Caret.newSheetDate] = nil; dismiss() }
             }
             DateGridPicker(selected: state.todayKey, marked: state.datesWithSheets, today: state.todayKey, onPick: onPick)
         }

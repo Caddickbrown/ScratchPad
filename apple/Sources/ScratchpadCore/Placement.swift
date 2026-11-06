@@ -23,9 +23,20 @@ public enum Placement {
         return b
     }
 
-    /// First free grid point below everything on the pad, in the left column.
-    public static func nextFreePoint(on pad: Pad) -> (x: Int, y: Int) {
-        let bottom = pad.blocks.map { $0.y + ($0.h ?? 120) }.max() ?? 0
-        return (gridSize, Block.snapped(bottom + gridSize))
+    /// Where a new block goes. With nothing wider to fill, the first free grid point below everything,
+    /// in the left column. Given a `width` (a monitor's paper, in canvas points), across it: columns a
+    /// default block apart, taking the one with the highest free spot, the leftmost on a tie.
+    public static func nextFreePoint(on pad: Pad, within width: Int? = nil, blockWidth: Int = defaultWidth) -> (x: Int, y: Int) {
+        func clear(below blocks: [Block]) -> Int {
+            blocks.map { $0.y + ($0.h ?? 120) }.max().map { Block.snapped($0 + gridSize) } ?? gridSize
+        }
+        var best: (x: Int, y: Int)?
+        if let width, width >= gridSize + blockWidth {
+            for x in stride(from: gridSize, through: width - blockWidth, by: defaultWidth + gridSize) {
+                let y = clear(below: pad.blocks.filter { $0.x < x + blockWidth && x < $0.x + $0.w })
+                if best == nil || y < best!.y { best = (x, y) }
+            }
+        }
+        return best ?? (gridSize, clear(below: pad.blocks))
     }
 }

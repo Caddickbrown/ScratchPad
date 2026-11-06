@@ -32,6 +32,10 @@ struct CanvasView: View {
     @State private var moving: (id: String, t: CGSize)?
     @State private var resizing: Block?
     @FocusState private var canvasFocused: Bool
+    #if os(iOS)
+    /// The monitor's paper, on its own so a scroll doesn't redraw the canvas (`MonitorPaper`).
+    @ObservedObject private var paper = MonitorModel.shared.paper
+    #endif
 
     private var blocks: [Block] { state.current?.blocks ?? [] }
     private var selected: Block? { state.selectedBlockID.flatMap { id in blocks.first { $0.id == id } } }
@@ -44,7 +48,15 @@ struct CanvasView: View {
     private var contentSize: CGSize {
         let maxY = blocks.map { CGFloat($0.y) + height(of: $0) }.max() ?? 0
         let maxX = blocks.map { CGFloat($0.x + $0.w) }.max() ?? 0
-        return CGSize(width: max(900, maxX + 240), height: max(720, maxY + 480))
+        let own = CGSize(width: max(900, maxX + 240), height: max(720, maxY + 480))
+        #if os(iOS)
+        // With a monitor attached the phone can pan out across all of its paper. Nothing is saved:
+        // unplugged, the canvas is back to what its blocks need.
+        if let wide = paper.size(for: state.current?.id) {
+            return CGSize(width: max(own.width, wide.width), height: max(own.height, wide.height))
+        }
+        #endif
+        return own
     }
 
     var body: some View {
@@ -683,6 +695,11 @@ private struct CanvasScrollKeeper: ViewModifier {
                 MonitorModel.shared.canvasMoved(sheetID: id, v)
             }
             .onDisappear { MonitorModel.shared.canvasGone() }
+            .onChange(of: state.reveal) { _, point in
+                guard let point else { return }
+                position.scrollTo(point: CGPoint(x: max(0, point.x - CGFloat(gridSize)), y: max(0, point.y - CGFloat(gridSize))))
+                state.reveal = nil
+            }
             #endif
             .onAppear {
                 if let saved = state.canvasOffset, saved.sheetID == state.current?.id {

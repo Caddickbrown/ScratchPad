@@ -147,6 +147,7 @@ struct PadHeader: View {
             Themed {
                 DateGridPicker(selected: state.current?.date, marked: state.datesWithSheets, today: state.todayKey,
                                keepsEntry: true) { day in
+                    state.entryDrafts[Caret.dateEntry] = nil
                     state.closeHeaderPopover()
                     state.moveCurrent(to: day)
                 }
@@ -178,14 +179,13 @@ struct DateGridPicker: View {
     let onPick: (String) -> Void
     @State private var year = 2026
     @State private var month = 1
-    @State private var typed = ""
     @State private var typedInvalid = false
     @FocusState private var typedFocused: Bool
 
-    /// The typed date: kept in `AppState` for the DATE box, local for "New sheet on a date…".
+    /// The typed date, kept in `AppState` so Esc doesn't lose it: the DATE box's, or "New sheet on a date…"'s.
     private var entry: Binding<String> {
-        guard keepsEntry else { return $typed }
-        return Binding(get: { state.entryDrafts[Caret.dateEntry] ?? "" }, set: { state.entryDrafts[Caret.dateEntry] = $0 })
+        let key = keepsEntry ? Caret.dateEntry : Caret.newSheetDate
+        return Binding(get: { state.entryDrafts[key] ?? "" }, set: { state.entryDrafts[key] = $0 })
     }
 
     private static let weekdayInitials = ["M", "T", "W", "T", "F", "S", "S"]

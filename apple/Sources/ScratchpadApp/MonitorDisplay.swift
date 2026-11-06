@@ -43,6 +43,24 @@ struct MonitorLiveBlock {
     @Published fileprivate(set) var current: MonitorLiveBlock?
 }
 
+/// How far the paper reaches on the monitor, in canvas points, for the sheet it shows. On its own for
+/// the same reason as `MonitorLive`: the phone's canvas watches this, and must not hear every scroll.
+@MainActor final class MonitorPaper: ObservableObject {
+    @Published private(set) var current: (sheetID: String, size: CGSize)?
+
+    fileprivate func report(sheetID: String, _ size: CGSize) {
+        if current?.sheetID != sheetID || current?.size != size { current = (sheetID, size) }
+    }
+
+    fileprivate func clear() {
+        if current != nil { current = nil }
+    }
+
+    func size(for sheetID: String?) -> CGSize? {
+        current?.sheetID == sheetID ? current?.size : nil
+    }
+}
+
 /// Which block the phone has hold of. Changes only as a gesture starts and ends.
 struct MonitorHold: Equatable {
     var sheetID: String
@@ -69,6 +87,7 @@ struct MonitorHold: Equatable {
     /// The block being dragged or resized on the phone, if any.
     @Published private(set) var hold: MonitorHold?
     let live = MonitorLive()
+    let paper = MonitorPaper()
 
     /// Kept while nothing is attached, so connecting draws the frame straight away.
     private var latest: (sheetID: String, rect: MonitorViewport)?
@@ -84,6 +103,13 @@ struct MonitorHold: Equatable {
         latest = (sheetID, v)
         guard isConnected else { return }
         if viewport?.sheetID != sheetID || viewport?.rect != v { viewport = latest }
+    }
+
+    /// The monitor has drawn a sheet: the phone's canvas and new blocks can use its paper.
+    func paperShown(sheetID: String, _ size: CGSize) {
+        guard isConnected else { return }
+        paper.report(sheetID: sheetID, size)
+        state?.monitorPaper = (sheetID, Int(size.width))
     }
 
     func canvasGone() {
@@ -114,6 +140,8 @@ struct MonitorHold: Equatable {
     func displayDidDisconnect() {
         isConnected = false
         viewport = nil
+        paper.clear()
+        state?.monitorPaper = nil
         blockLetGo()
         updateIdleTimer()
     }
@@ -470,7 +498,16 @@ struct MonitorSheet: View {
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .clipped()
             .animation(motion.isOff ? nil : .easeInOut(duration: 0.2), value: overview)
+            .onChange(of: size, initial: true) { _, new in report(new) }
+            .onChange(of: pad.id) { _, _ in report(size) }
+            .onChange(of: overview) { _, _ in report(size) }
         }
+    }
+
+    /// Tells the phone how far the paper reaches, but not the shrunken view while a block moves.
+    private func report(_ size: CGSize) {
+        guard !overview else { return }
+        MonitorModel.shared.paperShown(sheetID: pad.id, size)
     }
 
     /// Centres a sheet that fits; scrolls one that doesn't so the phone's window stays in the

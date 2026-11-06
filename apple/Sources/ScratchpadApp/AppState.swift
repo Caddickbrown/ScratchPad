@@ -23,6 +23,7 @@ struct Caret: Equatable {
     static func todo(_ id: String) -> String { "todo#\(id)" }
     static func formulaBar(_ blockID: String) -> String { "\(blockID)#formula" }
     static let dateEntry = "date-entry"
+    static let newSheetDate = "new-sheet-date"
     static let tagEntry = "tag-entry"
 }
 
@@ -80,11 +81,16 @@ final class AppState: ObservableObject {
     var todoTopRow: (sheetID: String, rowID: String)?
     /// The table cell each table's formula bar edits, by block id, for the rebuilt table. Not published.
     var tableCell: [String: CellPos] = [:]
-    /// What has been typed into the date and tag entries (by `Caret` key), kept here while their
-    /// popover is open so a fold does not clear them; published, as the popovers draw from it.
+    /// What has been typed into the date and tag entries (by `Caret` key), kept here until it's used,
+    /// so neither a fold nor Esc loses it; published, as the popovers draw from it.
     @Published var entryDrafts: [String: String] = [:]
     /// The month the DATE box's grid shows, for the same reason. Not published.
     var dateGridMonth: (year: Int, month: Int)?
+    /// How wide the monitor's paper is for the sheet it shows, in canvas points, so new blocks can
+    /// use it. Set by `MonitorModel`, and nil with no monitor. Not published.
+    var monitorPaper: (sheetID: String, width: Int)?
+    /// A new block the phone's window should go to, as it landed out across the monitor's paper.
+    @Published var reveal: CGPoint?
     /// The open header popover. Owned here rather than by the header, which a fold rebuilds.
     @Published var headerPopover: HeaderPopover?
     /// A popover SwiftUI closed, and when; a header rebuilt by a fold soon after opens it again.
@@ -418,27 +424,44 @@ final class AppState: ObservableObject {
 
     func insert(_ kind: BlockKind, at point: CGPoint? = nil, font: BlockFont = .sans) {
         guard let pad = current else { return }
-        let p = point.map { (x: Int($0.x), y: Int($0.y)) } ?? Placement.nextFreePoint(on: pad)
+        let width = kind == .table ? 240 : kind == .link ? 300 : Placement.defaultWidth
+        let p = point.map { (x: Int($0.x), y: Int($0.y)) }
+            ?? Placement.nextFreePoint(on: pad, within: monitorWidth(for: pad), blockWidth: width)
         var b: Block
         switch kind {
-        case .table: b = Block(kind: .table, x: p.x, y: p.y, w: 240, rows: [["", ""], ["", ""]], colWidths: [120, 120])
-        case .divider: b = Block(kind: .divider, x: p.x, y: p.y, w: 408)
-        case .code: b = Block(kind: .code, x: p.x, y: p.y, w: 408, text: "", font: .mono)
-        case .link: b = Block(kind: .link, x: p.x, y: p.y, w: 300, text: "", url: "")
-        default: b = Block(kind: .text, x: p.x, y: p.y, w: 408, text: "", font: font)
+        case .table: b = Block(kind: .table, x: p.x, y: p.y, w: width, rows: [["", ""], ["", ""]], colWidths: [120, 120])
+        case .divider: b = Block(kind: .divider, x: p.x, y: p.y, w: width)
+        case .code: b = Block(kind: .code, x: p.x, y: p.y, w: width, text: "", font: .mono)
+        case .link: b = Block(kind: .link, x: p.x, y: p.y, w: width, text: "", url: "")
+        default: b = Block(kind: .text, x: p.x, y: p.y, w: width, text: "", font: font)
         }
         b.snap()
         current?.blocks.append(b)
         selectedBlockID = b.id
         noteInserted(b.id)
+        if point == nil { revealIfOnMonitor(b, on: pad) }
+    }
+
+    private func monitorWidth(for pad: Pad) -> Int? {
+        monitorPaper?.sheetID == pad.id ? monitorPaper?.width : nil
+    }
+
+    /// A block placed across the paper may be well off the phone's window, so the window goes to it.
+    private func revealIfOnMonitor(_ b: Block, on pad: Pad) {
+        if monitorWidth(for: pad) != nil { reveal = CGPoint(x: b.x, y: b.y) }
     }
 
     func paste(_ contents: ClipboardContents, at point: CGPoint? = nil, font: BlockFont = .sans) {
         guard let pad = current else { return }
-        var at = point.map { (x: Int($0.x), y: Int($0.y)) } ?? Placement.nextFreePoint(on: pad)
+        var at = point.map { (x: Int($0.x), y: Int($0.y)) } ?? Placement.nextFreePoint(on: pad, within: monitorWidth(for: pad))
         for result in PasteClassifier.classify(contents) {
             do {
                 var b = try Placement.block(from: result, at: at, store: store)
+                // Each one takes the next free spot across the paper, at its own width.
+                if point == nil, let width = monitorWidth(for: pad), let sheet = current {
+                    (b.x, b.y) = Placement.nextFreePoint(on: sheet, within: width, blockWidth: b.w)
+                    revealIfOnMonitor(b, on: pad)
+                }
                 if b.kind == .text { b.font = font }
                 if b.kind == .table, let cols = b.rows?.first?.count, cols > 0 {
                     b.colWidths = Array(repeating: max(TableLayout.minColumn, b.w / cols), count: cols)
@@ -497,9 +520,8 @@ final class AppState: ObservableObject {
 
     // MARK: Header popovers
 
-    /// Opens a header popover afresh, with empty entries.
+    /// Opens a header popover, with whatever was left typed in it.
     func openHeaderPopover(_ which: HeaderPopover) {
-        entryDrafts = [:]
         dateGridMonth = nil
         closedPopover = nil
         headerPopover = which

@@ -719,6 +719,135 @@ final class MonitorFitTests: XCTestCase {
     }
 }
 
+/// Where a new block goes: down the left on its own, across the paper with a monitor attached.
+final class PlacementTests: XCTestCase {
+    private func pad(_ frames: [(x: Int, y: Int, w: Int, h: Int)]) -> Pad {
+        var p = Pad(id: "p", date: nil)
+        p.blocks = frames.map { Block(kind: .text, x: $0.x, y: $0.y, w: $0.w, h: $0.h, text: "") }
+        return p
+    }
+    private let w = Placement.defaultWidth
+
+    func testOnItsOwnASheetStillStacksDownTheLeft() {
+        let p = pad([(24, 24, 408, 96)])
+        let at = Placement.nextFreePoint(on: p)
+        XCTAssertEqual(at.x, gridSize)
+        XCTAssertEqual(at.y, 144)
+    }
+
+    func testAnEmptySheetStartsAtTheTopLeft() {
+        let at = Placement.nextFreePoint(on: Pad(id: "p", date: nil), within: 2000)
+        XCTAssertEqual(at.x, gridSize)
+        XCTAssertEqual(at.y, gridSize)
+    }
+
+    func testTheSecondBlockGoesBesideTheFirstNotUnderIt() {
+        let at = Placement.nextFreePoint(on: pad([(24, 24, 408, 96)]), within: 2000)
+        XCTAssertEqual(at.x, 456, "the next column")
+        XCTAssertEqual(at.y, 24, "at the top")
+    }
+
+    /// Dropping a run of blocks in turn fills the width before going down.
+    func testARunOfBlocksFillsTheWidth() {
+        var p = Pad(id: "p", date: nil)
+        var spots: [[Int]] = []
+        for _ in 0..<6 {
+            let at = Placement.nextFreePoint(on: p, within: 1400)
+            spots.append([at.x, at.y])
+            p.blocks.append(Block(kind: .text, x: at.x, y: at.y, w: w, h: 96, text: ""))
+        }
+        XCTAssertEqual(spots, [[24, 24], [456, 24], [888, 24], [24, 144], [456, 144], [888, 144]])
+    }
+
+    func testNothingLandsOnAnotherBlock() {
+        var p = pad([(24, 24, 408, 96), (600, 48, 720, 480), (240, 240, 408, 96)])
+        for _ in 0..<12 {
+            let at = Placement.nextFreePoint(on: p, within: 1920, blockWidth: 300)
+            let new = CGRect(x: at.x, y: at.y, width: 300, height: 96)
+            for b in p.blocks {
+                XCTAssertFalse(new.intersects(CGRect(x: b.x, y: b.y, width: b.w, height: b.h ?? 120)), "\(at) on \(b.x),\(b.y)")
+            }
+            p.blocks.append(Block(kind: .text, x: at.x, y: at.y, w: 300, h: 96, text: ""))
+        }
+    }
+
+    func testAlwaysInsideThePaperAndOnTheGrid() {
+        var p = Pad(id: "p", date: nil)
+        for _ in 0..<9 {
+            let at = Placement.nextFreePoint(on: p, within: 1000)
+            XCTAssertLessThanOrEqual(at.x + w, 1000)
+            XCTAssertEqual(at.x % gridSize, 0)
+            XCTAssertEqual(at.y % gridSize, 0)
+            p.blocks.append(Block(kind: .text, x: at.x, y: at.y, w: w, h: 100, text: ""))
+        }
+    }
+
+    func testPaperTooNarrowForAColumnFallsBackToTheLeft() {
+        let p = pad([(24, 24, 408, 96)])
+        let at = Placement.nextFreePoint(on: p, within: 300)
+        XCTAssertEqual(at.x, gridSize)
+        XCTAssertEqual(at.y, 144)
+    }
+
+    func testAWideBlockKeepsClearOfItsNeighbour() {
+        let p = pad([(456, 24, 408, 96)])
+        let at = Placement.nextFreePoint(on: p, within: 2000, blockWidth: 720)
+        XCTAssertFalse(CGRect(x: at.x, y: at.y, width: 720, height: 96).intersects(CGRect(x: 456, y: 24, width: 408, height: 96)))
+    }
+}
+
+/// What only the app's views can do, read from the source: this target has no app to run.
+final class MonitorWiringTests: XCTestCase {
+    private func source(_ name: String) throws -> String {
+        try String(contentsOf: repoRoot.appendingPathComponent("apple/Sources/ScratchpadApp/\(name)"), encoding: .utf8)
+    }
+
+    func testThePhonesCanvasReachesThePaper() throws {
+        let canvas = try source("CanvasView.swift")
+        XCTAssertTrue(canvas.contains("paper.size(for: state.current?.id)"), "the extent takes the monitor's paper")
+        let monitor = try source("MonitorDisplay.swift")
+        XCTAssertTrue(monitor.contains("paper.report"), "the monitor says how wide it is")
+        XCTAssertTrue(monitor.contains("guard !overview"), "not the shrunken view while a block moves")
+    }
+
+    func testNewBlocksAskForTheMonitorsWidth() throws {
+        let state = try source("AppState.swift")
+        XCTAssertTrue(state.contains("Placement.nextFreePoint(on: pad, within: monitorWidth(for: pad)"))
+    }
+
+    func testTheMonitorHomeListStays() throws {
+        XCTAssertTrue(try source("MonitorDisplay.swift").contains("MonitorHome(metrics: m)"))
+    }
+}
+
+/// Esc never loses what was typed. These live in views, so they're read from the source.
+final class EscKeepsTextTests: XCTestCase {
+    private func source(_ name: String) throws -> String {
+        try String(contentsOf: repoRoot.appendingPathComponent("apple/Sources/ScratchpadApp/\(name)"), encoding: .utf8)
+    }
+
+    func testReopeningAPopoverKeepsWhatWasTyped() throws {
+        let state = try source("AppState.swift")
+        let open = try XCTUnwrap(state.range(of: "func openHeaderPopover"))
+        let close = try XCTUnwrap(state.range(of: "func closeHeaderPopover"))
+        XCTAssertFalse(state[open.lowerBound..<close.lowerBound].contains("entryDrafts"), "opening doesn't wipe the drafts")
+        // Used, it goes: a picked date doesn't linger for the next sheet.
+        XCTAssertTrue(try source("PadView.swift").contains("state.entryDrafts[Caret.dateEntry] = nil"))
+    }
+
+    func testThePinnedSheetsTitleSurvivesEsc() throws {
+        let root = try source("RootView.swift")
+        XCTAssertFalse(root.contains("if state.askingPinned { pinnedTitle = \"\" }"), "Esc doesn't blank it")
+        XCTAssertFalse(root.contains("Button(\"Cancel\", role: .cancel) { pinnedTitle = \"\" }"), "nor can Esc landing on Cancel")
+    }
+
+    func testANewSheetsDateSurvivesEscButNotCancel() throws {
+        XCTAssertTrue(try source("PadView.swift").contains("Caret.newSheetDate"), "kept in AppState, not in the sheet")
+        let root = try source("RootView.swift")
+        XCTAssertTrue(root.contains("Button(\"Cancel\") { state.entryDrafts[Caret.newSheetDate] = nil; dismiss() }"))
+    }
+}
+
 final class StepBackTests: XCTestCase {
     /// What each step leaves behind, as the app does it.
     private func apply(_ step: StepBack, to c: inout StepBackContext) {

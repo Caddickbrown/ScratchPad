@@ -29,9 +29,12 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
   clamped to the sheet's edges.
 - **The paper fills the panel.** A sheet has no stored size or shape: its extent comes from its
   blocks. So the monitor draws the paper out to the panel's edges at the scale the content fits
-  (`MonitorFit`), with the blocks where they always were. Nothing is saved, and the phone's canvas
-  doesn't change, which also means the phone can't pan into the extra paper; a block has to be
-  dragged towards it, the canvas growing as it lands.
+  (`MonitorFit`), with the blocks where they always were. Nothing is saved. The monitor tells the
+  phone how far the paper reaches (`MonitorPaper`), so the phone's canvas grows to match and it can
+  pan out across all of it; unplugged, the canvas is back to what its blocks need.
+- **New blocks use the width.** With a monitor attached, a block with no spot of its own goes to the
+  highest free place across the paper, in columns (`Placement.nextFreePoint(on:within:blockWidth:)`),
+  and the phone's window goes to it. Without one they stack down the left, as ever.
 - **Home.** While the iPhone is on its sheet list the monitor shows the list too (`MonitorHome`),
   so going home shows on the screen being watched. In a wide layout the sheet stays up.
 - **Appearance:** an external-display scene doesn't follow the device, so the app pushes its
@@ -41,8 +44,9 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
   the sheet list, from anywhere: a dialog, popover, picker or sheet closes first, then the caret
   leaves the text, then the block is deselected, then the sheet closes, then the search clears.
   Further presses do nothing. In a wide layout (iPad), which has no list to return to, the last step
-  brings the rail back. Text typed into a block or to-do is already saved, so it is never lost:
-  `MonitorEscape`, `RootView.stepBack`, and `StepBack` in ScratchpadCore for the order.
+  brings the rail back. Text typed into a block or to-do is already saved, so it is never lost, and
+  what's typed in the date and tag entries, the New sheet on a date field and the pinned sheet's
+  title stays there for when they're next opened. Search is a filter, so it clears: `MonitorEscape`, `RootView.stepBack`, and `StepBack` in ScratchpadCore for the order.
 
 ## Plumbing
 
@@ -54,7 +58,6 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
 ## Next
 
 - Tap a mini-map on the phone to send the window to a spot.
-- Paste and new blocks land in the middle of the phone's window, not below everything.
 - Pinch the phone to zoom, which resizes the window.
 - Show the caret on the monitor, not just the selected block.
 - The phone measures a text block's editor as far taller than its text (`CanvasView.heights`), so
