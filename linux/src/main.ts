@@ -156,6 +156,10 @@ window.addEventListener("blur", () => { flush(); });
     await openToday();
     api.log(`opened ${state.current?.id}`);
     await wireTauriDrop();
+    const unreadable = await api.unreadablePads();
+    if (unreadable.length) {
+      toast(`${unreadable.length} sheet${unreadable.length === 1 ? "" : "s"} couldn't be read: ${unreadable.join(", ")}`);
+    }
   } catch (e) {
     api.log(`boot failed: ${e}`);
     toast(`Could not open the store: ${e}`);

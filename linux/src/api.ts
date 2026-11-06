@@ -13,6 +13,7 @@ export interface FileFilter { name: string; extensions: string[] }
 
 export interface Api {
   listPads(): Promise<Pad[]>;
+  unreadablePads(): Promise<string[]>;
   loadPad(id: string): Promise<Pad | null>;
   todayPad(): Promise<Pad>;
   savePad(pad: Pad): Promise<void>;
@@ -35,6 +36,7 @@ export interface Api {
 
 const tauriApi: Api = {
   listPads: async () => (await invoke<Pad[]>("list_pads")).map(migrate),
+  unreadablePads: () => invoke<string[]>("unreadable_pads"),
   loadPad: async (id) => { const p = await invoke<Pad | null>("load_pad", { id }); return p ? migrate(p) : null; },
   todayPad: async () => migrate(await invoke<Pad>("today_pad")),
   savePad: (pad) => invoke("save_pad", { pad }),
@@ -84,6 +86,7 @@ const readAll = (): Record<string, Pad> => {
 const writeAll = (all: Record<string, Pad>) => { try { localStorage.setItem(KEY, JSON.stringify(all)); } catch { /* private window */ } };
 
 const browserApi: Api = {
+  unreadablePads: async () => [],
   listPads: async () => Object.values(readAll()).sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || b.updatedAt.localeCompare(a.updatedAt)),
   loadPad: async (id) => readAll()[id] ?? null,
   todayPad: async () => {

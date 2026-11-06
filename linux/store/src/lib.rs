@@ -186,6 +186,23 @@ impl Store {
         Ok(pads)
     }
 
+    /// File names in pads/ that `list` had to leave out because they won't read
+    /// as sheets, so the app can say so rather than a sheet silently vanishing.
+    pub fn unreadable(&self) -> Result<Vec<String>> {
+        let mut names: Vec<String> = fs::read_dir(self.root.join("pads"))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
+            .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+            .filter(|e| match fs::read(e.path()) {
+                Ok(bytes) => serde_json::from_slice::<Pad>(&bytes).is_err(),
+                Err(_) => true,
+            })
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        Ok(names)
+    }
+
     pub fn load(&self, id: &str) -> Result<Option<Pad>> {
         let p = self.pad_path(id)?;
         if !p.exists() { return Ok(None); }
@@ -297,6 +314,19 @@ pub fn parse_day(key: &str) -> Option<NaiveDate> { NaiveDate::parse_from_str(key
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sheet_that_wont_read_is_named_and_the_rest_still_list() {
+        let dir = std::env::temp_dir().join(format!("scratchpad-unreadable-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let store = Store::open(&dir).unwrap();
+        let good = store.today_for("2026-01-02").unwrap();
+        fs::write(dir.join("pads/2026-01-01-bad0.json"), b"{ not a sheet").unwrap();
+        fs::write(dir.join("pads/.2026-01-03-abcd.json"), b"hidden").unwrap();
+        assert_eq!(store.list().unwrap().iter().map(|p| p.id.clone()).collect::<Vec<_>>(), [good.id]);
+        assert_eq!(store.unreadable().unwrap(), ["2026-01-01-bad0.json"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn todo(text: &str, status: TodoStatus) -> Todo {
         Todo { id: text.to_string(), text: text.to_string(), status, created_at: Utc::now(), carried_from: None }

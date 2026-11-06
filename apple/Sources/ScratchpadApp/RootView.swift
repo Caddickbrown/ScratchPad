@@ -56,6 +56,17 @@ struct RootView: View {
         } message: { pad in
             Text(deleteMessage(pad))
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let notice = state.storeNotice {
+                Text(notice)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(.bar)
+            }
+        }
         .alert("Something went wrong", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
             Button("OK") { state.error = nil }
         } message: { Text(state.error ?? "") }

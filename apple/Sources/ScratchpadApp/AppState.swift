@@ -97,29 +97,54 @@ final class AppState: ObservableObject {
     private var saveTask: Task<Void, Never>?
     private var dirty = false
 
-    init(store: PadStore) {
+    /// A line of status about the store: opening, downloading, or what couldn't be read.
+    @Published private(set) var storeNotice: String?
+    /// True until it's known which store to use. No sheet opens before then, so nothing
+    /// typed can land in the local store and be swapped away.
+    private var resolvingStore = false
+    /// How many times today's sheet has waited for downloads.
+    private var todayWaits = 0
+    private static let todayWaitLimit = 20
+
+    init(store: PadStore, resolvingStore: Bool = false) {
         self.store = store
+        self.resolvingStore = resolvingStore
+        if resolvingStore { storeNotice = "Opening your sheets…" }
         reload()
     }
 
-    /// Starts on the local store, then moves to the iCloud container when one is available.
+    /// Finds the store before opening a sheet: looking for the iCloud container can take seconds.
     static func live() -> AppState {
         let state: AppState
-        do { state = AppState(store: try PadStore(root: try PadStore.defaultRoot())) }
-        catch { fatalError("Cannot open store: \(error)") }
-        Task.detached(priority: .utility) {
-            guard let root = PadStore.iCloudRoot(), let cloud = try? PadStore(root: root) else { return }
-            await state.switchStore(to: cloud)
+        let local: PadStore
+        do {
+            local = try PadStore(root: try PadStore.defaultRoot())
+            state = AppState(store: local, resolvingStore: true)
+        } catch { fatalError("Cannot open store: \(error)") }
+        Task.detached(priority: .userInitiated) {
+            if let root = PadStore.iCloudRoot(), let cloud = try? PadStore(root: root) {
+                await state.switchStore(to: cloud, from: local)
+            } else {
+                await state.storeResolved()
+            }
         }
         return state
     }
 
-    func switchStore(to newStore: PadStore) {
+    private func storeResolved() {
+        resolvingStore = false
+        reload()
+    }
+
+    /// Moves to iCloud, bringing across whatever the local store holds.
+    func switchStore(to newStore: PadStore, from local: PadStore) {
         flush()
+        do { try newStore.adopt(from: local) }
+        catch { self.error = "Some sheets couldn't be moved to iCloud. They're still safe on this device. \(error.localizedDescription)" }
         store = newStore
         usingICloud = true
         current = nil
-        reload()
+        storeResolved()
     }
 
     var todayKey: String { DayKey.key(for: Date()) }
@@ -128,12 +153,41 @@ final class AppState: ObservableObject {
 
     func reload() {
         do {
-            pads = try store.list()
-            if current == nil { openToday() }
+            let scan = try store.scan()
+            pads = scan.pads
+            note(scan)
+            if current == nil && !resolvingStore { openToday() }
         } catch { self.error = error.localizedDescription }
     }
 
-    private func refreshList() { pads = (try? store.list()) ?? pads }
+    private func refreshList() {
+        guard let scan = try? store.scan() else { return }
+        pads = scan.pads
+        note(scan)
+    }
+
+    private func note(_ scan: PadStore.Scan) {
+        if resolvingStore {
+            storeNotice = "Opening your sheets…"
+        } else if !scan.unreadable.isEmpty {
+            let count = scan.unreadable.count
+            storeNotice = "\(count) sheet\(count == 1 ? "" : "s") couldn't be read: \(scan.unreadable.joined(separator: ", "))"
+        } else if !scan.downloading.isEmpty {
+            storeNotice = "\(scan.downloading.count) still downloading from iCloud…"
+        } else {
+            storeNotice = nil
+        }
+    }
+
+    /// Waits a moment for today's sheet to arrive, then lets it go: a phone with no signal
+    /// still needs somewhere to write.
+    private func waitForToday() {
+        todayWaits += 1
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            self?.reload()
+        }
+    }
 
     // MARK: Sheets
 
@@ -141,10 +195,12 @@ final class AppState: ObservableObject {
     func openToday() {
         do {
             let hadToday = pads.contains { $0.date == todayKey }
-            let pad = try store.today()
+            let pad = try store.today(ignoringDownloads: todayWaits >= Self.todayWaitLimit)
             current = pad
             if !hadToday && pad.todos.contains(where: { $0.carriedFrom != nil }) { markHop(pad.id) }
             refreshList()
+        } catch PadStore.StoreError.stillDownloading {
+            waitForToday()
         } catch { self.error = error.localizedDescription }
     }
 

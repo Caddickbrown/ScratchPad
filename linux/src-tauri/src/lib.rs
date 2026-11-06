@@ -15,6 +15,11 @@ fn list_pads(store: State<AppStore>) -> Result<Vec<Pad>, String> {
 }
 
 #[tauri::command]
+fn unreadable_pads(store: State<AppStore>) -> Result<Vec<String>, String> {
+    store.0.lock().unwrap().unreadable().map_err(err)
+}
+
+#[tauri::command]
 fn load_pad(store: State<AppStore>, id: String) -> Result<Option<Pad>, String> {
     store.0.lock().unwrap().load(&id).map_err(err)
 }
@@ -108,7 +113,7 @@ pub fn run() {
             app.manage(AppStore(Mutex::new(store)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_pads, load_pad, today_pad, save_pad, delete_pad, store_asset, import_file, asset_path, store_root, debug_log, fetch_title, archive_json, import_archive_json])
+        .invoke_handler(tauri::generate_handler![list_pads, unreadable_pads, load_pad, today_pad, save_pad, delete_pad, store_asset, import_file, asset_path, store_root, debug_log, fetch_title, archive_json, import_archive_json])
         .run(tauri::generate_context!())
         .expect("error while running scratchpad");
 }

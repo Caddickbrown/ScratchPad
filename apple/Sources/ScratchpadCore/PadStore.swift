@@ -5,9 +5,23 @@ import Foundation
 public final class PadStore: @unchecked Sendable {
     public enum StoreError: Error, LocalizedError {
         case invalidID(String)
+        /// Sheets are on their way from iCloud, so what's here isn't the whole picture yet.
+        case stillDownloading
         public var errorDescription: String? {
-            switch self { case .invalidID(let id): return "Not a valid sheet id: \(id)" }
+            switch self {
+            case .invalidID(let id): return "Not a valid sheet id: \(id)"
+            case .stillDownloading: return "Your sheets are still downloading from iCloud."
+            }
         }
+    }
+
+    /// What's in the store, including what can't be shown.
+    public struct Scan {
+        public var pads: [Pad] = []
+        /// File names that are there but aren't sheets this app can read.
+        public var unreadable: [String] = []
+        /// Ids of sheets iCloud has but hasn't downloaded yet.
+        public var downloading: [String] = []
     }
 
     public let root: URL
@@ -38,12 +52,105 @@ public final class PadStore: @unchecked Sendable {
     private func padURL(_ id: String) -> URL { root.appendingPathComponent("pads/\(id).json") }
 
     /// Every sheet, newest date first (pinned last), then most recently updated.
-    public func list() throws -> [Pad] {
+    public func list() throws -> [Pad] { try scan().pads }
+
+    /// The sheets, and what couldn't be listed: a file that won't parse is reported, and an
+    /// evicted iCloud file (a hidden `.<id>.json.icloud` stand-in) is asked for.
+    public func scan() throws -> Scan {
         let dir = root.appendingPathComponent("pads")
-        let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
-        return files.filter { $0.pathExtension == "json" }
-            .compactMap { try? PadJSON.decoder.decode(Pad.self, from: Data(contentsOf: $0)) }
-            .sorted(by: PadStore.newestFirst)
+        var result = Scan()
+        for file in try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+            let name = file.lastPathComponent
+            if let id = PadStore.placeholderID(name) {
+                result.downloading.append(id)
+                requestDownload(padURL(id))
+            } else if file.pathExtension == "json", !name.hasPrefix(".") {
+                if let pad = try? PadJSON.decoder.decode(Pad.self, from: Data(contentsOf: file)) {
+                    result.pads.append(pad)
+                } else {
+                    result.unreadable.append(name)
+                }
+            }
+        }
+        result.pads.sort(by: PadStore.newestFirst)
+        result.unreadable.sort()
+        result.downloading.sort()
+        return result
+    }
+
+    /// The id in an iCloud stand-in's file name.
+    private static func placeholderID(_ name: String) -> String? {
+        guard name.hasPrefix("."), name.hasSuffix(".json.icloud") else { return nil }
+        return String(name.dropFirst().dropLast(".json.icloud".count))
+    }
+
+    private func requestDownload(_ url: URL) {
+        #if canImport(Darwin)
+        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        #endif
+    }
+
+    /// Runs a write under file coordination, so it never races the iCloud daemon.
+    private func coordinated(_ url: URL, _ options: CoordinatedWrite, _ body: (URL) throws -> Void) throws {
+        #if canImport(Darwin)
+        var coordinationError: NSError?
+        var bodyError: Error?
+        NSFileCoordinator(filePresenter: nil).coordinate(
+            writingItemAt: url, options: options == .deleting ? .forDeleting : .forReplacing,
+            error: &coordinationError
+        ) { target in
+            do { try body(target) } catch { bodyError = error }
+        }
+        if let error = coordinationError ?? bodyError { throw error }
+        #else
+        try body(url)
+        #endif
+    }
+
+    private enum CoordinatedWrite { case replacing, deleting }
+
+    /// One-off, when iCloud arrives: brings the sheets and pictures of `local` here. An id
+    /// already here stays as it is. A sheet still downloading is left for next time, as it
+    /// can't be compared yet. Nothing is deleted: each file handled moves to
+    /// `moved-to-icloud/` beside the local store, so it's never brought across twice.
+    @discardableResult
+    public func adopt(from local: PadStore) throws -> Int {
+        let fm = FileManager.default
+        let here = try scan()
+        let known = Set(try fm.contentsOfDirectory(atPath: root.appendingPathComponent("pads").path))
+        let waiting = Set(here.downloading)
+        let aside = local.root.appendingPathComponent("moved-to-icloud/pads", isDirectory: true)
+        let sources = try fm.contentsOfDirectory(at: local.root.appendingPathComponent("pads"),
+                                                 includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "json" && !$0.lastPathComponent.hasPrefix(".") }
+        guard !sources.isEmpty else { return 0 }
+        try fm.createDirectory(at: aside, withIntermediateDirectories: true)
+        // Pictures first: a sheet must never arrive before what it shows.
+        let assets = root.appendingPathComponent("assets")
+        for item in try fm.contentsOfDirectory(at: local.root.appendingPathComponent("assets"),
+                                               includingPropertiesForKeys: nil) {
+            let target = assets.appendingPathComponent(item.lastPathComponent)
+            if !fm.fileExists(atPath: target.path) {
+                let data = try Data(contentsOf: item)
+                try coordinated(target, .replacing) { try data.write(to: $0, options: .atomic) }
+            }
+        }
+        var brought = 0
+        for file in sources {
+            let name = file.lastPathComponent
+            if waiting.contains(file.deletingPathExtension().lastPathComponent) { continue }
+            if !known.contains(name) {
+                let data = try Data(contentsOf: file)
+                try coordinated(root.appendingPathComponent("pads/\(name)"), .replacing) {
+                    try data.write(to: $0, options: .atomic)
+                }
+                brought += 1
+            }
+            let target = aside.appendingPathComponent(name)
+            try? fm.removeItem(at: target)
+            try fm.moveItem(at: file, to: target)
+        }
+        return brought
     }
 
     /// Dated sheets by date descending, pinned after, ties by updatedAt descending.
@@ -68,21 +175,27 @@ public final class PadStore: @unchecked Sendable {
         var p = pad.compacted
         if touch { p.updatedAt = Date() }
         let data = try PadJSON.encoder.encode(p)
-        try queue.sync { try data.write(to: padURL(p.id), options: .atomic) }
+        try queue.sync {
+            try coordinated(padURL(p.id), .replacing) { try data.write(to: $0, options: .atomic) }
+        }
         return p
     }
 
     public func delete(_ id: String) throws {
         guard SheetID.isValid(id) else { throw StoreError.invalidID(id) }
-        try FileManager.default.removeItem(at: padURL(id))
+        try coordinated(padURL(id), .deleting) { try FileManager.default.removeItem(at: $0) }
     }
 
     /// Today on launch: when no sheet is dated today, create one with carry-over; when several exist,
-    /// the most recently updated.
-    public func today(now: Date = Date(), timeZone: TimeZone = .current) throws -> Pad {
+    /// the most recently updated. While sheets are downloading it throws `stillDownloading` rather
+    /// than make one: today's may be among them, and carrying over from a partial list would carry
+    /// to-dos twice. `ignoringDownloads` is for a device that has waited and can't reach iCloud.
+    public func today(now: Date = Date(), timeZone: TimeZone = .current, ignoringDownloads: Bool = false) throws -> Pad {
         let key = DayKey.key(for: now, timeZone: timeZone)
-        let all = try list()
+        let scan = try scan()
+        let all = scan.pads
         if let existing = all.filter({ $0.date == key }).max(by: { $0.updatedAt < $1.updatedAt }) { return existing }
+        if !scan.downloading.isEmpty && !ignoringDownloads { throw StoreError.stillDownloading }
         return try create(date: key, tags: [], now: now, timeZone: timeZone, among: all)
     }
 
@@ -136,7 +249,7 @@ public final class PadStore: @unchecked Sendable {
     /// Writes bytes into assets/ and returns the store-relative path to put in a block.
     public func storeAsset(_ data: Data, ext: String) throws -> String {
         let name = "assets/\(UUID().uuidString.lowercased()).\(ext.isEmpty ? "bin" : ext)"
-        try data.write(to: root.appendingPathComponent(name), options: .atomic)
+        try coordinated(root.appendingPathComponent(name), .replacing) { try data.write(to: $0, options: .atomic) }
         return name
     }
 
