@@ -7,6 +7,10 @@ struct ScratchpadApp: App {
     @AppStorage(SettingsKey.appearance) private var appearance: AppearanceMode = .system
     @AppStorage(SettingsKey.defaultFont) private var defaultFont: BlockFont = .sans
 
+    #if os(iOS)
+    init() { ScratchpadFieldEscape.install() }
+    #endif
+
     var body: some Scene {
         WindowGroup {
             Themed { RootView() }
