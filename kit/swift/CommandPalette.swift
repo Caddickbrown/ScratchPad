@@ -374,6 +374,8 @@ final class CommandHost<List: CommandList>: ObservableObject {
         let top = UIWindow(windowScene: scene)
         top.rootViewController = host
         top.backgroundColor = .clear
+        // A new window follows the system, not the light or dark the app has chosen.
+        top.overrideUserInterfaceStyle = previousKey?.traitCollection.userInterfaceStyle ?? .unspecified
         // Above sheets; an app's lock screen sits higher still.
         top.windowLevel = .alert
         top.makeKeyAndVisible()
