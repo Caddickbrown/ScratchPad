@@ -491,19 +491,24 @@ final class AppState: ObservableObject {
 
     // MARK: Esc
 
-    /// Closes the frontmost dialog, popover or sheet: one per call, and false if none was open.
-    func closeFrontmost() -> Bool {
-        if error != nil { error = nil; return true }
-        if confirmingDelete != nil { confirmingDelete = nil; return true }
-        if askingPinned { askingPinned = false; return true }
-        if showFontPanel { showFontPanel = false; return true }
-        if headerPopover != nil { closeHeaderPopover(); return true }
-        if showImport { showImport = false; return true }
-        if showExport { showExport = false; return true }
-        if askingNewOnDate { askingNewOnDate = false; return true }
-        if showSettings { showSettings = false; return true }
-        if showTodoSheet { showTodoSheet = false; return true }
-        return false
+    /// A dialog, popover or sheet is up.
+    var hasFrontmost: Bool {
+        error != nil || confirmingDelete != nil || askingPinned || showFontPanel || headerPopover != nil
+            || showImport || showExport || askingNewOnDate || showSettings || showTodoSheet
+    }
+
+    /// Closes the frontmost dialog, popover or sheet: one per call.
+    func closeFrontmost() {
+        if error != nil { error = nil }
+        else if confirmingDelete != nil { confirmingDelete = nil }
+        else if askingPinned { askingPinned = false }
+        else if showFontPanel { showFontPanel = false }
+        else if headerPopover != nil { closeHeaderPopover() }
+        else if showImport { showImport = false }
+        else if showExport { showExport = false }
+        else if askingNewOnDate { askingNewOnDate = false }
+        else if showSettings { showSettings = false }
+        else if showTodoSheet { showTodoSheet = false }
     }
 
     func flush() {

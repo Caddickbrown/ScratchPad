@@ -92,7 +92,13 @@ struct Themed<Content: View>: View {
             .animation(motion.isOff ? nil : .easeInOut(duration: 0.36), value: scheme)
             #if os(iOS)
             // Here because this wraps every sheet and popover, each a view tree of its own.
-            .onKeyPress(.escape) { MonitorEscapeController.heard() ? .handled : .ignored }
+            .background {
+                Button("") { MonitorEscapeController.heard() }
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .opacity(0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             #endif
     }
 }

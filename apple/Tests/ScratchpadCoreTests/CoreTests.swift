@@ -718,3 +718,63 @@ final class MonitorFitTests: XCTestCase {
         XCTAssertEqual(fit.paper, CGSize(width: 900, height: 720))
     }
 }
+
+final class StepBackTests: XCTestCase {
+    /// What each step leaves behind, as the app does it.
+    private func apply(_ step: StepBack, to c: inout StepBackContext) {
+        switch step {
+        case .closeFrontmost: c.hasFrontmost = false
+        case .endTyping: c.isTyping = false
+        case .letGoOfBlock: c.hasSelectedBlock = false
+        case .closeSheet: c.isSheetOpen = false
+        case .clearSearch: c.isSearching = false
+        case .showRail: c.isRailShowing = true
+        case .none: break
+        }
+    }
+
+    func testTheWholeWayHomeOnThePhone() {
+        var c = StepBackContext(hasFrontmost: true, isTyping: true, hasSelectedBlock: true,
+                                isCompact: true, isSheetOpen: true, isSearching: true)
+        var steps: [StepBack] = []
+        while case let step = StepBack.next(c), step != .none {
+            steps.append(step)
+            apply(step, to: &c)
+        }
+        XCTAssertEqual(steps, [.closeFrontmost, .endTyping, .letGoOfBlock, .closeSheet, .clearSearch])
+    }
+
+    func testAWideLayoutEndsWithTheRail() {
+        var c = StepBackContext(isTyping: true, isRailShowing: false)
+        XCTAssertEqual(StepBack.next(c), .endTyping)
+        apply(.endTyping, to: &c)
+        XCTAssertEqual(StepBack.next(c), .showRail)
+        apply(.showRail, to: &c)
+        XCTAssertEqual(StepBack.next(c), .none)
+    }
+
+    func testAFoldedRailIsNoStepOnThePhone() {
+        XCTAssertEqual(StepBack.next(StepBackContext(isCompact: true, isRailShowing: false)), .none)
+    }
+
+    func testAnOpenSheetIsNoStepInAWideLayout() {
+        XCTAssertEqual(StepBack.next(StepBackContext(isCompact: false, isSheetOpen: true)), .none)
+    }
+
+    /// Every combination gets home, each press changing something, in at most one press a layer.
+    func testEveryStateReachesHome() {
+        for bits in 0..<(1 << 7) {
+            func on(_ i: Int) -> Bool { bits & (1 << i) != 0 }
+            var c = StepBackContext(hasFrontmost: on(0), isTyping: on(1), hasSelectedBlock: on(2), isCompact: on(3),
+                                    isSheetOpen: on(4), isSearching: on(5), isRailShowing: on(6))
+            var presses = 0
+            while case let step = StepBack.next(c), step != .none {
+                let before = c
+                apply(step, to: &c)
+                XCTAssertNotEqual(c, before, "\(step) did nothing")
+                presses += 1
+                XCTAssertLessThanOrEqual(presses, 6)
+            }
+        }
+    }
+}

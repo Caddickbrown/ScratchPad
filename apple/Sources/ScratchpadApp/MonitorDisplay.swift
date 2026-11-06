@@ -152,30 +152,37 @@ final class MonitorSceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 // MARK: - Esc
 
-/// Esc on the phone's keyboard while a monitor is attached, heard two ways, as no one way reaches
-/// everywhere. With nothing being typed in, `MonitorEscapeController` holds first responder and has
-/// the key, whatever is presented over it. A field being typed in has first responder instead and
-/// the controller isn't in its chain, so `Themed`, which wraps the root and every sheet and popover,
-/// listens with `onKeyPress`. A field in an alert goes to the alert's own Cancel, with the same result.
+/// Esc on a hardware keyboard, monitor or not, heard two ways, as no one way reaches everywhere.
+/// With nothing being typed in, `MonitorEscapeController` holds first responder and has the key,
+/// whatever is presented over it. A field being typed in has first responder instead and the
+/// controller isn't in its chain, so `Themed`, which wraps the root and every sheet and popover,
+/// holds a hidden Esc button: SwiftUI declares its shortcut on that view tree's hosting controller,
+/// which is in the field's chain. A field in an alert goes to the alert's own Cancel, or on to the
+/// root's button, with the same result.
 struct MonitorEscape: UIViewControllerRepresentable {
     let stepBack: () -> Void
+    let deleteBlock: () -> Void
 
     func makeUIViewController(context: Context) -> MonitorEscapeController { MonitorEscapeController() }
 
     func updateUIViewController(_ controller: MonitorEscapeController, context: Context) {
         controller.stepBack = stepBack
+        controller.deleteBlock = deleteBlock
     }
 
-    /// Takes the caret out of whatever has it. False if nothing was being typed in.
-    static func endTyping() -> Bool {
-        guard UIResponder.monitorFirstResponder() is UIKeyInput else { return false }
-        return UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    /// Whether a field has the caret.
+    static var isTyping: Bool { UIResponder.monitorFirstResponder() is UIKeyInput }
+
+    /// Takes the caret out of whatever has it.
+    static func endTyping() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
 
 final class MonitorEscapeController: UIViewController {
     private static weak var active: MonitorEscapeController?
     var stepBack: () -> Void = {}
+    var deleteBlock: () -> Void = {}
     private var reclaim: Timer?
 
     override var canBecomeFirstResponder: Bool { true }
@@ -183,17 +190,18 @@ final class MonitorEscapeController: UIViewController {
     override var keyCommands: [UIKeyCommand]? {
         let command = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escape))
         command.wantsPriorityOverSystemBehavior = true
-        return [command]
+        // Holding first responder takes these from the canvas's `onKeyPress`, so they are heard here.
+        let delete = ["\u{8}", UIKeyCommand.inputDelete].map {
+            UIKeyCommand(input: $0, modifierFlags: [], action: #selector(deletePressed))
+        }
+        return [command] + delete
     }
 
     @objc private func escape() { stepBack() }
+    @objc private func deletePressed() { deleteBlock() }
 
-    /// For `Themed`'s `onKeyPress`. False with no monitor attached, which leaves Esc to the system.
-    static func heard() -> Bool {
-        guard let active else { return false }
-        active.stepBack()
-        return true
-    }
+    /// For `Themed`'s hidden button.
+    static func heard() { active?.stepBack() }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)

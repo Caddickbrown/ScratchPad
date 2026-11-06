@@ -17,11 +17,6 @@ struct RootView: View {
     /// The iPhone stack's path: the open sheet is pushed onto it when the window turns compact
     /// (folding an iPhone Duo), so the fold keeps you on the sheet rather than the rail.
     @State private var phonePath: [String] = []
-    #if os(iOS)
-    /// Whether a monitor is attached, for Esc. Not an observed `MonitorModel`: that changes on every
-    /// scroll, and this view would redraw with it.
-    @State private var monitorAttached = false
-    #endif
 
     private var compact: Bool {
         #if os(iOS)
@@ -37,8 +32,7 @@ struct RootView: View {
         }
         #if os(iOS)
         .onAppear { MonitorModel.shared.attach(state) }
-        .onReceive(MonitorModel.shared.$isConnected) { monitorAttached = $0 }
-        .background { if monitorAttached { MonitorEscape(stepBack: stepBack) } }
+        .background { MonitorEscape(stepBack: stepBack, deleteBlock: deleteSelectedBlock) }
         .onChange(of: compact && phonePath.isEmpty, initial: true) { _, home in MonitorModel.shared.atHome = home }
         .onChange(of: scheme, initial: true) { _, s in MonitorModel.shared.colorScheme = s }
         .onChange(of: sizeClass) { _, newValue in
@@ -118,18 +112,32 @@ struct RootView: View {
     }
 
     #if os(iOS)
-    /// Esc on a keyboard while a monitor is attached: one step towards the sheet list, so pressing
-    /// it repeatedly always ends there. Whatever is in front closes first, then the caret leaves
-    /// the text, then the block is let go of, then the sheet closes, then the search clears.
-    /// With no sheet list of its own to return to, a wide layout brings the rail back.
+    /// Esc on a keyboard: one step towards the sheet list. The order is `StepBack`'s.
     private func stepBack() {
-        if state.askingPinned { pinnedTitle = "" }
-        if state.closeFrontmost() { return }
-        if MonitorEscape.endTyping() { state.caret = nil; return }
-        if state.selectedBlockID != nil { state.selectedBlockID = nil; return }
-        if compact && !phonePath.isEmpty { phonePath = []; return }
-        if !state.searchText.isEmpty { state.searchText = ""; return }
-        if !compact { storedColumns = .all }
+        let context = StepBackContext(
+            hasFrontmost: state.hasFrontmost, isTyping: MonitorEscape.isTyping,
+            hasSelectedBlock: state.selectedBlockID != nil, isCompact: compact,
+            isSheetOpen: !phonePath.isEmpty, isSearching: !state.searchText.isEmpty,
+            isRailShowing: storedColumns == .all)
+        switch StepBack.next(context) {
+        case .closeFrontmost:
+            if state.askingPinned { pinnedTitle = "" }
+            state.closeFrontmost()
+        case .endTyping:
+            MonitorEscape.endTyping()
+            state.caret = nil
+        case .letGoOfBlock: state.selectedBlockID = nil
+        case .closeSheet: phonePath = []
+        case .clearSearch: state.searchText = ""
+        case .showRail: storedColumns = .all
+        case .none: break
+        }
+    }
+
+    /// The Delete key with a block selected and nothing being typed in.
+    private func deleteSelectedBlock() {
+        guard !state.hasFrontmost, let id = state.selectedBlockID else { return }
+        animate(motion.delete) { state.deleteBlock(id) }
     }
     #endif
 
