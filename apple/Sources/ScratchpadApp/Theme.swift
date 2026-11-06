@@ -99,6 +99,7 @@ struct Themed<Content: View>: View {
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
+            .background(CommandMenuShortcut())
             #endif
     }
 }

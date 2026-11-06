@@ -138,6 +138,7 @@ struct MonitorHold: Equatable {
     }
 
     func displayDidDisconnect() {
+        ScratchpadCommandMenu.host.close()
         isConnected = false
         viewport = nil
         paper.clear()
@@ -349,6 +350,7 @@ private struct MonitorMetrics {
 struct MonitorBoard: View {
     @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
+    @ObservedObject private var commands = ScratchpadCommandMenu.host
     let viewport: (sheetID: String, rect: MonitorViewport)?
     let hold: MonitorHold?
     let atHome: Bool
@@ -373,6 +375,12 @@ struct MonitorBoard: View {
                     .padding(m.padding)
                 } else {
                     Text("Scratchpad").font(Fonts.ui(m.text * 2, .semibold)).foregroundStyle(p.muted)
+                }
+                // Its own keys, as the monitor has no hint bar.
+                if commands.onMonitor, let menu = commands.menu {
+                    ScratchpadCommandPanel(menu: menu, z: m.text / 16, showsKeys: true)
+                        .padding(.top, m.padding * 2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
         }

@@ -31,7 +31,10 @@ struct RootView: View {
             if compact { phone } else { desktop }
         }
         #if os(iOS)
-        .onAppear { MonitorModel.shared.attach(state) }
+        .onAppear {
+            MonitorModel.shared.attach(state)
+            ScratchpadCommandMenu.host.perform = runCommand
+        }
         .background { MonitorEscape(stepBack: stepBack, deleteBlock: deleteSelectedBlock) }
         .onChange(of: compact && phonePath.isEmpty, initial: true) { _, home in MonitorModel.shared.atHome = home }
         .onChange(of: scheme, initial: true) { _, s in MonitorModel.shared.colorScheme = s }
@@ -125,6 +128,38 @@ struct RootView: View {
     }
 
     #if os(iOS)
+    /// What each ⌘K row does. Deleting raises the same alert the menus do.
+    private func runCommand(_ command: ScratchpadCommand) {
+        switch command {
+        case .sheets:
+            phonePath = []
+            if !compact { storedColumns = .all }
+        case .today:
+            state.openToday()
+            if compact, let id = state.current?.id { phonePath = [id] }
+        case .settings: state.showSettings = true
+        case .newSheet: state.newSheetToday()
+        case .newOnDate: state.askingNewOnDate = true
+        case .newPinned: state.askingPinned = true
+        case .duplicate: state.duplicateCurrent()
+        case .askDelete: state.confirmingDelete = state.current
+        case .insert(let kind):
+            switch kind {
+            case .text: insertBlock(.text)
+            case .table: insertBlock(.table)
+            case .code: insertBlock(.code)
+            case .link: insertBlock(.link)
+            case .divider: insertBlock(.divider)
+            }
+        case .todos: state.showTodoSheet = true
+        case .export:
+            state.flush()
+            state.showExport = true
+        case .importArchive: state.showImport = true
+        case .undoDelete: state.undoDelete()
+        }
+    }
+
     /// Esc on a keyboard: one step towards the sheet list. The order is `StepBack`'s.
     private func stepBack() {
         let context = StepBackContext(

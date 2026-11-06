@@ -15,6 +15,8 @@ targets:
     supportedDestinations: [iOS, macOS]
     sources:
       - path: Sources/ScratchpadApp
+      # The ⌘K menu's rules and keys, shared between the apps.
+      - path: ../kit/swift/CommandPalette.swift
       - path: Resources
     dependencies:
       - package: ScratchpadCore

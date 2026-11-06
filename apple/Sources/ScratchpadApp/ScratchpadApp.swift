@@ -8,7 +8,10 @@ struct ScratchpadApp: App {
     @AppStorage(SettingsKey.defaultFont) private var defaultFont: BlockFont = .sans
 
     #if os(iOS)
-    init() { ScratchpadFieldEscape.install() }
+    init() {
+        ScratchpadFieldEscape.install()
+        ScratchpadCommandMenu.install()
+    }
     #endif
 
     var body: some Scene {
