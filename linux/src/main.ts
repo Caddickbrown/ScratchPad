@@ -20,7 +20,7 @@ import { applyAppearance, applyWhimsy } from "./motion";
 import { classify, fromDataTransfer, type ClipboardContents } from "./paste";
 import { prefs, setPref, type Appearance } from "./prefs";
 import { renderRail } from "./sidebar";
-import { duplicateSheet, flush, newSheetOn, newSheetToday, openToday, state, view } from "./state";
+import { cameBack, duplicateSheet, flush, newSheetOn, newSheetToday, openToday, state, view } from "./state";
 import { focusBlank, renderTodos } from "./todos";
 import { $, editing, el, I, menu, toast } from "./ui";
 
@@ -142,6 +142,7 @@ document.addEventListener("keydown", (e) => {
 
 window.addEventListener("beforeunload", () => { flush(); });
 window.addEventListener("blur", () => { flush(); });
+window.addEventListener("focus", () => { if (state.current) cameBack(); });
 
 // ---------- boot ----------
 

@@ -22,6 +22,12 @@ public final class PadStore: @unchecked Sendable {
         public var unreadable: [String] = []
         /// Ids of sheets iCloud has but hasn't downloaded yet.
         public var downloading: [String] = []
+
+        /// Every id with a file behind it. A sheet that won't read or hasn't arrived still
+        /// holds its name, so a new sheet can't be written over it.
+        public var takenIDs: Set<String> {
+            Set(pads.map(\.id) + downloading + unreadable.map { String($0.dropLast(".json".count)) })
+        }
     }
 
     public let root: URL
@@ -189,28 +195,30 @@ public final class PadStore: @unchecked Sendable {
     /// Today on launch: when no sheet is dated today, create one with carry-over; when several exist,
     /// the most recently updated. While sheets are downloading it throws `stillDownloading` rather
     /// than make one: today's may be among them, and carrying over from a partial list would carry
-    /// to-dos twice. `ignoringDownloads` is for a device that has waited and can't reach iCloud.
+    /// to-dos twice. `ignoringDownloads` is for a device that has waited and can't reach iCloud: it
+    /// gets a sheet with nothing carried, for the same reason.
     public func today(now: Date = Date(), timeZone: TimeZone = .current, ignoringDownloads: Bool = false) throws -> Pad {
         let key = DayKey.key(for: now, timeZone: timeZone)
         let scan = try scan()
-        let all = scan.pads
-        if let existing = all.filter({ $0.date == key }).max(by: { $0.updatedAt < $1.updatedAt }) { return existing }
+        if let existing = scan.pads.filter({ $0.date == key }).max(by: { $0.updatedAt < $1.updatedAt }) { return existing }
         if !scan.downloading.isEmpty && !ignoringDownloads { throw StoreError.stillDownloading }
-        return try create(date: key, tags: [], now: now, timeZone: timeZone, among: all)
+        return try create(date: key, tags: [], now: now, timeZone: timeZone, among: scan)
     }
 
-    /// New dated sheet. When it is the first sheet dated today, it carries over from the latest earlier day.
+    /// New dated sheet. When it is the first sheet dated today, it carries over from the latest earlier
+    /// day, unless sheets are still downloading: today's first sheet may be one of them.
     @discardableResult
     public func create(date: String, tags: [String] = [], title: String = "", now: Date = Date(),
                        timeZone: TimeZone = .current) throws -> Pad {
-        try create(date: date, tags: tags, title: title, now: now, timeZone: timeZone, among: try list())
+        try create(date: date, tags: tags, title: title, now: now, timeZone: timeZone, among: try scan())
     }
 
-    private func create(date: String, tags: [String], title: String = "", now: Date, timeZone: TimeZone, among all: [Pad]) throws -> Pad {
+    private func create(date: String, tags: [String], title: String = "", now: Date, timeZone: TimeZone, among scan: Scan) throws -> Pad {
         var pad = Pad.dated(date, tags: tags, title: title, now: now)
-        while all.contains(where: { $0.id == pad.id }) { pad.id = SheetID.make(for: date) }
+        let taken = scan.takenIDs, all = scan.pads
+        while taken.contains(pad.id) { pad.id = SheetID.make(for: date) }
         let todayKey = DayKey.key(for: now, timeZone: timeZone)
-        if date == todayKey, !all.contains(where: { $0.date == todayKey }) {
+        if date == todayKey, scan.downloading.isEmpty, !all.contains(where: { $0.date == todayKey }) {
             pad = Rollover.carried(from: Rollover.sources(for: todayKey, among: all), into: pad)
         }
         return try save(pad, touch: false)
@@ -219,15 +227,14 @@ public final class PadStore: @unchecked Sendable {
     /// New pinned sheet with a slug id.
     @discardableResult
     public func createPinned(title: String, tags: [String] = [], now: Date = Date()) throws -> Pad {
-        let existing = Set(try list().map(\.id))
-        let pad = Pad(id: SheetID.slug(title, existing: existing), date: nil, title: title, tags: tags, pinned: true, createdAt: now, updatedAt: now)
+        let pad = Pad(id: SheetID.slug(title, existing: try scan().takenIDs), date: nil, title: title, tags: tags, pinned: true, createdAt: now, updatedAt: now)
         return try save(pad, touch: false)
     }
 
     /// Duplicate: blocks and open to-dos copied, new ids, title + " copy". Same date (or pinned).
     @discardableResult
     public func duplicate(_ pad: Pad, now: Date = Date()) throws -> Pad {
-        let existing = Set(try list().map(\.id))
+        let existing = try scan().takenIDs
         let newID: String
         if let d = pad.date {
             var id = SheetID.make(for: d)

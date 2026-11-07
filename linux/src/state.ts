@@ -25,6 +25,7 @@ export const view = {
 };
 
 let saveTimer: number | undefined;
+let lastWrite: { id: string; at: string } | null = null;
 export function touch(): void {
   if (state.current) state.current.updatedAt = new Date().toISOString();
   window.clearTimeout(saveTimer);
@@ -32,11 +33,16 @@ export function touch(): void {
 }
 
 export async function flush(): Promise<void> {
+  // Only a real edit writes: this also runs on losing focus, and writing the copy in memory
+  // then would overwrite whatever another device saved to a synced folder.
+  if (saveTimer === undefined) return;
   window.clearTimeout(saveTimer);
   saveTimer = undefined;
   const pad = state.current;
   if (!pad) return;
   try { await api.savePad(pad); } catch (e) { toast(`Could not save: ${e}`); return; }
+  // The store stamps the file, and this write mustn't look like news from another device.
+  lastWrite = { id: pad.id, at: (await api.loadPad(pad.id).catch(() => null))?.updatedAt ?? pad.updatedAt };
   upsert(pad);
   view.rail();
 }
@@ -70,6 +76,27 @@ export async function openToday(): Promise<void> {
   state.current = pad;
   state.selected = null;
   view.all();
+}
+
+let lastToday = todayKey();
+
+/** Back in focus: sees what other devices saved, and moves on from yesterday's sheet. */
+export async function cameBack(): Promise<void> {
+  await flush();
+  const today = todayKey();
+  const wasToday = lastToday !== today && state.current?.date === lastToday;
+  lastToday = today;
+  if (wasToday) { await openToday(); return; }
+  const id = state.current?.id;
+  const fresh = id ? await api.loadPad(id) : null;
+  if (state.current?.id !== id || saveTimer !== undefined) return;
+  await refreshPads();
+  const seen = lastWrite?.id === id ? lastWrite.at : state.current?.updatedAt ?? "";
+  if (fresh && state.current && Date.parse(fresh.updatedAt) > Date.parse(seen)) {
+    state.current = fresh;
+    upsert(fresh);
+    view.all();
+  } else view.rail();
 }
 
 /** Peels the visible paper away (the desk-pad tear-off), then shows `next`. */

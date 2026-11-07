@@ -137,6 +137,8 @@ public struct ScratchpadArchive: Codable, Equatable, Sendable {
         public var overwritten: Int
         public var assetsWritten: Int
         public var skipped: Int
+        /// Sheets left as they are because the one here is at least as new.
+        public var keptNewer = 0
     }
 
     /// Asset keys must be a plain file directly under assets/.
@@ -166,24 +168,31 @@ public struct ScratchpadArchive: Codable, Equatable, Sendable {
         return a
     }
 
-    /// Merges into the store: sheets with an existing id are overwritten, assets written only if missing.
-    /// Invalid ids and unsafe asset paths are skipped.
+    /// Merges into the store, assets first so a sheet never arrives before what it shows. A sheet
+    /// replaces one with the same id only if it's newer, so an old backup can't undo later work.
+    /// Assets are written only if missing. Invalid ids and unsafe asset paths are skipped, and so
+    /// are sheets that won't read or haven't arrived: there's nothing to compare them with.
     @discardableResult
     public func importInto(_ store: PadStore) throws -> ImportResult {
         var result = ImportResult(sheets: 0, overwritten: 0, assetsWritten: 0, skipped: 0)
-        let existing = Set(try store.list().map(\.id))
-        for s in sheets {
-            guard SheetID.isValid(s.id) else { result.skipped += 1; continue }
-            if existing.contains(s.id) { result.overwritten += 1 }
-            try store.save(s, touch: false)
-            result.sheets += 1
-        }
         for (path, b64) in assets.sorted(by: { $0.key < $1.key }) {
             guard ScratchpadArchive.isSafeAssetPath(path), let data = Data(base64Encoded: b64) else { result.skipped += 1; continue }
             let url = store.assetURL(path)
             if FileManager.default.fileExists(atPath: url.path) { continue }
             try data.write(to: url, options: .atomic)
             result.assetsWritten += 1
+        }
+        let scan = try store.scan()
+        let existing = Dictionary(scan.pads.map { ($0.id, $0.updatedAt) }, uniquingKeysWith: max)
+        let uncertain = scan.takenIDs.subtracting(existing.keys)
+        for s in sheets {
+            guard SheetID.isValid(s.id), !uncertain.contains(s.id) else { result.skipped += 1; continue }
+            if let here = existing[s.id] {
+                if here >= s.updatedAt { result.keptNewer += 1; continue }
+                result.overwritten += 1
+            }
+            try store.save(s, touch: false)
+            result.sheets += 1
         }
         return result
     }

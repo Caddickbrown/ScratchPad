@@ -649,6 +649,7 @@ final class ExportTests: XCTestCase {
         let dst = try tempStore()
         var existing = pad
         existing.title = "old"
+        existing.updatedAt = pad.updatedAt.addingTimeInterval(-60)
         try dst.save(existing, touch: false)
         let result = try ScratchpadArchive.decode(data).importInto(dst)
         XCTAssertEqual(result.sheets, 1)

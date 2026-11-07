@@ -77,9 +77,12 @@ public enum Formula {
         let magnitude = abs(value)
         var intString: String, frac = ""
         if magnitude < 1e14 {
-            let units = Int64((magnitude * 10_000).rounded())
-            intString = String(units / 10_000)
-            let f = String(units % 10_000)
+            // The whole part stays out of the multiply: at this size it would leave float dust behind.
+            var whole = Int64(magnitude)
+            var units = Int64(((magnitude - Double(whole)) * 10_000).rounded())
+            if units == 10_000 { whole += 1; units = 0 }
+            intString = String(whole)
+            let f = String(units)
             frac = String(repeating: "0", count: 4 - f.count) + f
             while frac.hasSuffix("0") { frac.removeLast() }
         } else {

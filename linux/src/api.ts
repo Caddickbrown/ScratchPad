@@ -26,7 +26,7 @@ export interface Api {
   storeRoot(): Promise<string>;
   fetchTitle(url: string): Promise<string | null>;
   archiveJson(tag?: string): Promise<string>;
-  importArchiveJson(json: string): Promise<{ sheets: number; assets: number }>;
+  importArchiveJson(json: string): Promise<{ sheets: number; assets: number; kept_newer?: number; skipped?: number }>;
   /** Asks where to save, then writes. Resolves false when the user cancels. */
   saveFile(defaultName: string, data: string | Uint8Array, filter: FileFilter): Promise<boolean>;
   /** Asks for a file and returns its text, or null when cancelled. */

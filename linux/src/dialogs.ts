@@ -235,7 +235,9 @@ async function importArchive(): Promise<void> {
     const r = await api.importArchiveJson(json);
     await refreshPads();
     view.rail();
-    toast(`Imported ${r.sheets} sheet${r.sheets === 1 ? "" : "s"} and ${r.assets} attachment${r.assets === 1 ? "" : "s"}`);
+    const kept = r.kept_newer ? `. Kept ${r.kept_newer} newer sheet${r.kept_newer === 1 ? "" : "s"} already here` : "";
+    const left = r.skipped ? `. Left out ${r.skipped} that couldn't be checked` : "";
+    toast(`Imported ${r.sheets} sheet${r.sheets === 1 ? "" : "s"} and ${r.assets} attachment${r.assets === 1 ? "" : "s"}${kept}${left}`);
   } catch (e) { toast(String(e)); }
 }
 

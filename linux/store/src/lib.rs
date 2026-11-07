@@ -5,6 +5,7 @@ use chrono::{DateTime, Local, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub const GRID: i64 = 24;
@@ -59,12 +60,27 @@ pub struct Block {
 #[serde(rename_all = "lowercase")]
 pub enum TodoStatus { Open, Done, Deferred }
 
+/// Whole seconds, as Swift writes them, so a synced folder doesn't churn between writers.
+/// Any fractional digits still read, as older Linux builds wrote them.
+mod whole_seconds {
+    use chrono::{DateTime, SecondsFormat, Utc};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(at: &DateTime<Utc>, s: S) -> std::result::Result<S::Ok, S::Error> {
+        s.serialize_str(&at.to_rfc3339_opts(SecondsFormat::Secs, true))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<DateTime<Utc>, D::Error> {
+        DateTime::<Utc>::deserialize(d)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Todo {
     pub id: String,
     pub text: String,
     pub status: TodoStatus,
-    #[serde(rename = "createdAt")] pub created_at: DateTime<Utc>,
+    #[serde(rename = "createdAt", with = "whole_seconds")] pub created_at: DateTime<Utc>,
     #[serde(rename = "carriedFrom", default)] pub carried_from: Option<String>,
 }
 
@@ -78,8 +94,8 @@ pub struct Pad {
     /// v1 only. Read, folded into `tags`, never written.
     #[serde(default, skip_serializing)] pub tag: Option<String>,
     #[serde(default)] pub pinned: bool,
-    #[serde(rename = "createdAt")] pub created_at: DateTime<Utc>,
-    #[serde(rename = "updatedAt")] pub updated_at: DateTime<Utc>,
+    #[serde(rename = "createdAt", with = "whole_seconds")] pub created_at: DateTime<Utc>,
+    #[serde(rename = "updatedAt", with = "whole_seconds")] pub updated_at: DateTime<Utc>,
     #[serde(default)] pub blocks: Vec<Block>,
     #[serde(default)] pub todos: Vec<Todo>,
 }
@@ -150,13 +166,13 @@ pub fn valid_id(id: &str) -> bool {
 pub struct Archive {
     pub format: String,
     pub v: u8,
-    #[serde(rename = "exportedAt")] pub exported_at: DateTime<Utc>,
+    #[serde(rename = "exportedAt", with = "whole_seconds")] pub exported_at: DateTime<Utc>,
     pub sheets: Vec<Pad>,
     pub assets: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Default, PartialEq)]
-pub struct ImportSummary { pub sheets: usize, pub assets: usize }
+pub struct ImportSummary { pub sheets: usize, pub assets: usize, pub kept_newer: usize, pub skipped: usize }
 
 pub struct Store { pub root: PathBuf }
 
@@ -212,9 +228,16 @@ impl Store {
     pub fn save(&self, pad: &Pad) -> Result<()> {
         let mut pad = pad.clone().migrate();
         pad.updated_at = Utc::now();
+        self.write(&pad)
+    }
+
+    /// Writes the sheet as it is, on disk before it takes the real name.
+    fn write(&self, pad: &Pad) -> Result<()> {
         let path = self.pad_path(&pad.id)?;
         let tmp = path.with_extension("json.tmp");
-        fs::write(&tmp, serde_json::to_vec_pretty(&pad)?)?;
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(&serde_json::to_vec_pretty(pad)?)?;
+        file.sync_all()?;
         fs::rename(tmp, path)?;
         Ok(())
     }
@@ -277,7 +300,9 @@ impl Store {
         Ok(Archive { format: "scratchpad-archive".into(), v: 1, exported_at: Utc::now(), sheets, assets })
     }
 
-    /// Merge an archive: sheets with an existing id are overwritten, assets are written when missing.
+    /// Merge an archive. A sheet replaces one with the same id only if it's newer, so an old backup
+    /// can't undo later work, and keeps its own times. One that won't read is left alone, as there's
+    /// nothing to compare it with. Assets are written when missing.
     pub fn import_archive(&self, archive: Archive) -> Result<ImportSummary> {
         if archive.format != "scratchpad-archive" { return Err(StoreError::BadArchive); }
         let mut summary = ImportSummary::default();
@@ -288,9 +313,17 @@ impl Store {
             fs::write(path, bytes)?;
             summary.assets += 1;
         }
+        let unreadable = self.unreadable()?;
         for sheet in archive.sheets {
-            if !valid_id(&sheet.id) { continue; }
-            self.save(&sheet)?;
+            if !valid_id(&sheet.id) || unreadable.contains(&format!("{}.json", sheet.id)) {
+                summary.skipped += 1;
+                continue;
+            }
+            if self.load(&sheet.id)?.is_some_and(|here| here.updated_at >= sheet.updated_at) {
+                summary.kept_newer += 1;
+                continue;
+            }
+            self.write(&sheet.migrate())?;
             summary.sheets += 1;
         }
         Ok(summary)
@@ -326,6 +359,82 @@ mod tests {
         assert_eq!(store.list().unwrap().iter().map(|p| p.id.clone()).collect::<Vec<_>>(), [good.id]);
         assert_eq!(store.unreadable().unwrap(), ["2026-01-01-bad0.json"]);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn dates_are_written_in_whole_seconds_as_swift_writes_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let mut pad = Pad::new_dated("2026-01-02", "2026-01-02T03:04:05.123456789Z".parse().unwrap());
+        pad.todos = vec![Todo { id: "t".into(), text: "x".into(), status: TodoStatus::Open,
+                                created_at: "2026-01-02T03:04:05.987Z".parse().unwrap(), carried_from: None }];
+        store.save(&pad).unwrap();
+        let text = fs::read_to_string(dir.path().join(format!("pads/{}.json", pad.id))).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["createdAt"], "2026-01-02T03:04:05Z");
+        assert_eq!(json["todos"][0]["createdAt"], "2026-01-02T03:04:05Z");
+        let updated = json["updatedAt"].as_str().unwrap();
+        assert!(updated.len() == 20 && updated.ends_with('Z'), "{updated}");
+    }
+
+    #[test]
+    fn any_fractional_digits_still_read() {
+        for s in ["2026-01-02T03:04:05Z", "2026-01-02T03:04:05.1Z", "2026-01-02T03:04:05.123456789Z"] {
+            let pad: Pad = serde_json::from_str(&format!(r#"{{"v":2,"id":"a","createdAt":"{s}","updatedAt":"{s}"}}"#)).unwrap();
+            assert_eq!(pad.created_at.timestamp(), 1767323045);
+        }
+    }
+
+    fn sheet_updated(id: &str, title: &str, at: &str) -> Pad {
+        let at: DateTime<Utc> = at.parse().unwrap();
+        let mut pad = Pad::new_dated("2026-01-02", at);
+        pad.id = id.into();
+        pad.title = title.into();
+        pad.updated_at = at;
+        pad
+    }
+
+    fn archive_of(sheets: Vec<Pad>) -> Archive {
+        Archive { format: "scratchpad-archive".into(), v: 1, exported_at: Utc::now(), sheets, assets: BTreeMap::new() }
+    }
+
+    #[test]
+    fn importing_keeps_each_sheets_own_times() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let at = "2020-05-05T05:05:05Z";
+        store.import_archive(archive_of(vec![sheet_updated("a", "A", at)])).unwrap();
+        assert_eq!(store.load("a").unwrap().unwrap().updated_at, at.parse::<DateTime<Utc>>().unwrap());
+    }
+
+    #[test]
+    fn importing_an_old_backup_keeps_the_newer_sheet() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.import_archive(archive_of(vec![sheet_updated("a", "Newer", "2026-02-02T00:00:00Z")])).unwrap();
+        let summary = store.import_archive(archive_of(vec![sheet_updated("a", "Old", "2026-01-01T00:00:00Z")])).unwrap();
+        assert_eq!(store.load("a").unwrap().unwrap().title, "Newer");
+        assert_eq!((summary.sheets, summary.kept_newer), (0, 1));
+    }
+
+    #[test]
+    fn importing_a_newer_sheet_replaces_the_older() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.import_archive(archive_of(vec![sheet_updated("a", "Old", "2026-01-01T00:00:00Z")])).unwrap();
+        store.import_archive(archive_of(vec![sheet_updated("a", "Newer", "2026-02-02T00:00:00Z")])).unwrap();
+        assert_eq!(store.load("a").unwrap().unwrap().title, "Newer");
+    }
+
+    #[test]
+    fn importing_never_replaces_a_sheet_that_wont_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let file = dir.path().join("pads/a.json");
+        fs::write(&file, b"{ not a sheet").unwrap();
+        let summary = store.import_archive(archive_of(vec![sheet_updated("a", "New", "2026-01-01T00:00:00Z")])).unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"{ not a sheet");
+        assert_eq!((summary.sheets, summary.skipped), (0, 1));
     }
 
     fn todo(text: &str, status: TodoStatus) -> Todo {
@@ -416,7 +525,7 @@ mod tests {
         let b = tempfile::tempdir().unwrap();
         let dst = Store::open(b.path()).unwrap();
         let summary = dst.import_archive(serde_json::from_slice(&json).unwrap()).unwrap();
-        assert_eq!(summary, ImportSummary { sheets: 2, assets: 1 });
+        assert_eq!((summary.sheets, summary.assets), (2, 1));
         assert_eq!(fs::read(dst.asset_path(&rel).unwrap()).unwrap(), b"png-bytes");
         assert!(dst.import_archive(Archive { format: "nope".into(), v: 1, exported_at: Utc::now(), sheets: vec![], assets: BTreeMap::new() }).is_err());
     }

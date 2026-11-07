@@ -142,6 +142,35 @@ final class AppState: ObservableObject {
         reload()
     }
 
+    /// The day this was last looked at, to notice a new one on coming back.
+    private lazy var lastToday = todayKey
+    /// When this device last wrote a sheet. Saving stamps the file, not `current`, and the
+    /// app's own write mustn't look like news from another device.
+    private var lastWrite: (id: String, at: Date)?
+
+    /// Back in the foreground: saves anything typed, sees what other devices did while away,
+    /// and moves on from yesterday's sheet.
+    func cameToForeground() {
+        guard !resolvingStore else { return }
+        flush()
+        let today = todayKey
+        let onDisk = current.flatMap { try? store.load($0.id) }
+        var here = current
+        if let lastWrite, lastWrite.id == here?.id, lastWrite.at > here!.updatedAt { here?.updatedAt = lastWrite.at }
+        let step = Resume.step(current: here, onDisk: onDisk, lastToday: lastToday, today: today)
+        lastToday = today
+        refreshList()
+        switch step {
+        case .nothing: break
+        case .load(let pad):
+            current = pad
+            // That's what's on disk, so it isn't an edit to save.
+            saveTask?.cancel()
+            dirty = false
+        case .openToday: openToday()
+        }
+    }
+
     /// Moves to iCloud, bringing across whatever the local store holds.
     func switchStore(to newStore: PadStore, from local: PadStore) {
         flush()
@@ -503,7 +532,10 @@ final class AppState: ObservableObject {
             let result = try archive.importInto(store)
             refreshList()
             if let id = current?.id, let fresh = try store.load(id) { current = fresh }
-            notice = "Imported \(result.sheets) sheet\(result.sheets == 1 ? "" : "s")" + (result.assetsWritten > 0 ? " and \(result.assetsWritten) file\(result.assetsWritten == 1 ? "" : "s")" : "")
+            notice = "Imported \(result.sheets) sheet\(result.sheets == 1 ? "" : "s")"
+                + (result.assetsWritten > 0 ? " and \(result.assetsWritten) file\(result.assetsWritten == 1 ? "" : "s")" : "")
+                + (result.keptNewer > 0 ? ". Kept \(result.keptNewer) newer sheet\(result.keptNewer == 1 ? "" : "s") already here" : "")
+                + (result.skipped > 0 ? ". Left out \(result.skipped) that couldn't be checked" : "")
         } catch { self.error = error.localizedDescription }
     }
 
@@ -595,6 +627,7 @@ final class AppState: ObservableObject {
         dirty = false
         do {
             let saved = try store.save(pad)
+            lastWrite = (saved.id, saved.updatedAt)
             if let i = pads.firstIndex(where: { $0.id == saved.id }) { pads[i] = saved } else { refreshList() }
         } catch { self.error = error.localizedDescription }
     }

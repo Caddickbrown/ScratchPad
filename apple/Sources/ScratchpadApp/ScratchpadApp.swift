@@ -6,6 +6,7 @@ struct ScratchpadApp: App {
     @StateObject private var state = AppState.live()
     @AppStorage(SettingsKey.appearance) private var appearance: AppearanceMode = .system
     @AppStorage(SettingsKey.defaultFont) private var defaultFont: BlockFont = .sans
+    @Environment(\.scenePhase) private var scenePhase
 
     #if os(iOS)
     init() {
@@ -19,6 +20,22 @@ struct ScratchpadApp: App {
             Themed { RootView() }
                 .environmentObject(state)
                 .preferredColorScheme(appearance.colorScheme)
+                #if os(macOS)
+                // scenePhase doesn't change on a Mac when another app comes to the front.
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    state.cameToForeground()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                    state.flush()
+                }
+                #endif
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active: state.cameToForeground()
+            case .inactive, .background: state.flush()
+            @unknown default: break
+            }
         }
         #if os(macOS)
         .defaultSize(width: 1440, height: 900)
