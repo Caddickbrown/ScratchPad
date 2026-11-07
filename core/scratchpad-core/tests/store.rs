@@ -257,7 +257,7 @@ fn coming_back() {
 fn known_differences() {
     // Foundation goes to the Julian calendar before 1582. The core stays Gregorian.
     assert_eq!(Date::parse("0001-01-01T00:00:00Z").unwrap().0, -62_135_596_800_000);
-    // JSONDecoder takes the last of a duplicated key; the core calls the file unreadable. No writer
+    // JSONDecoder reads a file with a duplicated key; the core calls it unreadable. No writer
     // makes one, and unreadable is the safe side: the file stays and is named.
     assert!(Pad::from_json(br#"{"id":"a","id":"b","createdAt":"2026-01-02T03:04:05Z"}"#).is_err());
 }

@@ -207,7 +207,7 @@ Most of Swift's list time is `ISODate.parse` building new formatters for every d
 - Unknown fields survive the core, and don't survive the Swift store. That's the point of them. Carrying a to-do over drops them, as it's a new row.
 - `localizedCaseInsensitiveCompare` is approximated for A to Z. It agrees on every vector, including accents, emoji and Japanese, but it isn't full ICU collation, so an unusual script may sort differently.
 - `URL(string:)` is approximated in paste. It agrees on every vector.
-- Dates before 1582: Foundation goes to the Julian calendar, the core stays Gregorian. A duplicated JSON key: Swift takes the last, the core calls the file unreadable. Both are pinned in `known_differences`.
+- Dates before 1582: Foundation goes to the Julian calendar, the core stays Gregorian. A duplicated JSON key: Swift reads the file, the core calls it unreadable. Both are pinned in `known_differences`.
 - `store_asset` tidies the extension (lowercase, letters and digits, eight at most), as Linux did. Swift kept it as given.
 - On Linux, sheets are now written in Swift's shape: `font`, `fontSize` and `rotation` always, and empty to-do rows dropped. Older Linux builds read that fine, tested above.
 - `v: 3` is read as if it were 2 by every reader, so a newer format is still not refused. Keeping unknown fields softens that.
