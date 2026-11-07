@@ -208,39 +208,12 @@ struct MonitorEscape: UIViewControllerRepresentable {
     }
 }
 
-/// Declares esc, with priority, on every text field and text view, SwiftUI's
-/// included. A field keeps esc from anything without priority over the text
-/// system (Quire found this with a page that couldn't be left), so a hidden
-/// shortcut can't be relied on from one. `keyCommands` is wrapped once at launch,
-/// keeping whatever the class declared, because SwiftUI's fields can't be
-/// subclassed. Hub, Graft and Acorn do the same.
+/// The kit declares esc and ⌘., with priority, on every text field and text view,
+/// SwiftUI's included, and on the window; here is what a press does.
 @MainActor
 enum ScratchpadFieldEscape {
-    private typealias Getter = @convention(c) (AnyObject, Selector) -> NSArray?
-
     static func install() {
-        wrap(UITextField.self)
-        wrap(UITextView.self)
-    }
-
-    private static func wrap(_ type: AnyClass) {
-        let selector = #selector(getter: UIResponder.keyCommands)
-        guard let method = class_getInstanceMethod(type, selector) else { return }
-        // The class's own if it has one, or else what it inherits.
-        let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)
-        let block: @convention(block) (AnyObject) -> NSArray? = { field in
-            let own = original(field, selector) as? [UIKeyCommand] ?? []
-            // Mid-composition esc belongs to the input method.
-            if (field as? UITextInput)?.markedTextRange != nil { return own as NSArray }
-            let escape = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [],
-                                      action: #selector(UIResponder.scratchpadFieldEscape))
-            escape.wantsPriorityOverSystemBehavior = true
-            return own + [escape] as NSArray
-        }
-        let wrapped = imp_implementationWithBlock(block)
-        if !class_addMethod(type, selector, wrapped, method_getTypeEncoding(method)) {
-            method_setImplementation(method, wrapped)
-        }
+        KitFieldEscape.install(action: #selector(UIResponder.scratchpadFieldEscape))
     }
 }
 

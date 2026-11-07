@@ -20,7 +20,7 @@ servers in any language. `kit/MANIFEST` records a hash of every file, and
 | `tools/build_tokens.py` | Generates CSS and Swift palettes from `design/tokens.json`; `--check` for CI |
 | `tools/kit_check.py` | Outside font hosts, missing Reduce Motion handling; warns on text sizes that don't scale |
 | `tools/sync_kit.py` | Copies the kit into an app; `--check` for drift; `--manifest` after changing the kit |
-| `swift/` | `Color(hex:)`, `Color(light:dark:)`, `Contrast`, `Font.scaled`, `KitMotion`, `RelativeDate`, `SyncStatus`, `CommandPalette` (the ⌘K menu's rules and keys; the app draws the panel) |
+| `swift/` | `Color(hex:)`, `Color(light:dark:)`, `Contrast`, `Font.scaled`, `KitMotion`, `RelativeDate`, `SyncStatus`, `CommandPalette` (the ⌘K menu's rules and keys; the app draws the panel), `KitFieldEscape` (Esc and ⌘. on every field and the window; the app says what a press does) |
 | `js/` | `relativeDate`, `statusLine` (ES modules, no dependencies) |
 | `vectors/` | Shared test cases the Swift and JS halves must both pass |
 | `ci/kit.yml` | The standard GitHub Actions workflow running the three checks |

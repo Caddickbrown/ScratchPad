@@ -14,7 +14,7 @@ The machine-readable copy is `keymap.json`.
 |---|---|---|
 | ↑ ↓ / j k | Move through the list | |
 | ↵ | Open | |
-| esc | Back, close, cancel | |
+| esc | Back, close, cancel | ⌘. too, on iOS: `kit/swift/FieldEscape.swift` |
 | 1–9 | Jump to section | ⌘ on desktop |
 | [ ] | Previous / next group | Whatever the app groups by: a status, a folder, a list |
 | x | Done | |

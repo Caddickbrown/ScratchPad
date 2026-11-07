@@ -17,6 +17,8 @@ targets:
       - path: Sources/ScratchpadApp
       # The ⌘K menu's rules and keys, shared between the apps.
       - path: ../kit/swift/CommandPalette.swift
+      # Esc and ⌘. on every field and the window.
+      - path: ../kit/swift/FieldEscape.swift
       - path: Resources
     dependencies:
       - package: ScratchpadCore
