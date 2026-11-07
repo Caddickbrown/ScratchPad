@@ -1,6 +1,6 @@
 # Scratchpad: Rust core conversion spec
 
-Status: plan only, nothing built. Written 2026-11-05 from reading the code at commit `f050afa`. No build or device test backs it.
+Status: built on the local `rust-core` branch as far as synthetic data goes. Section 8 says where it stands. The plan below was written 2026-11-05 from reading the code at commit `f050afa`.
 
 Reference pattern: Quire (`core/` with `Vault`, `bindings/`, Tauri and Apple shells on one core), MiniOffice (`core/crates`, `mo-ffi`) and BestShot (`core/bestshot-ffi`, `apple/scripts/build-core.sh`).
 
@@ -152,3 +152,64 @@ Each stage ships on both platforms and leaves the app working.
 ## 7. Size
 
 **Medium.** About 1,800 lines of Swift logic to port, of which 400 already exist in Rust, and an almost trivial FFI. Most of the care goes on stage 4.
+
+## 8. Where this stands
+
+**Moved.** `core/scratchpad-core` holds the model, the store over a `Vault`, formulas, dates, paste, to-do order, the sidebar, rollover, exports and the archive. It writes exactly what Swift's `JSONEncoder` writes, and keeps unknown fields. `core/scratchpad-ffi` carries it to Swift, with `Vault` as a foreign trait. Formulas, date phrases, paste, to-do order, the sidebar and exports reach the views through the Swift names they already used (`apple/Sources/ScratchpadCore/CoreRules.swift`). `AppleVault` has plain reads, coordinated writes and placeholders. `PadStore` is a façade on `PadLibrary` behind a hidden switch, **off by default**. The Tauri commands call the core; `linux/store` stays only so a test can prove old and new read each other.
+
+**Stages.**
+
+| Stage | State |
+|---|---|
+| 1. Vectors, date fix | Done. The date fix is on `master` |
+| 2. Linux pure logic | Partly. The commands call the core and type-check. The TS copies stay, because neither the UI nor its tests can be built here without `node_modules` |
+| 3. Apple pure functions | Done, on the Mac and through UniFFI |
+| 4. Apple store | Built and tested on throwaway folders, switched off. Stops here: it needs a device, a backup and real iCloud |
+| 5. Delete Swift's copies | Not started: `swift…` functions and `linux/store` stay until the core has had a release. `Placement`, `Rollover`, `Resume`, labels and tags are in the core and vectors, but the app still calls Swift for them |
+| 6. Overwrite guard, watcher | Not started. Question 2 is still Dan's |
+
+**The switch.** `defaults write com.caddickbrown.scratchpad ScratchpadStore rust`, or `SCRATCHPAD_STORE=rust`; `SCRATCHPAD_RULES=swift` puts the Swift rules back. With the core chosen, a `.scratchpad` archive goes to `Application Support/Scratchpad Backups` first, one a day for each store, keeping three, read by the Swift store. If that fails, the store stays on Swift.
+
+**Checks, one command each, on generated data:**
+
+| Command | What it shows |
+|---|---|
+| `python3 shared/vectors/generate.py` | Seeded inputs. Run only to change them |
+| `swift run core-check record` in `apple/` | Records what the Swift code answers into `shared/vectors/expected.json`. Only on purpose |
+| `swift run core-check check` in `apple/` | The rules through UniFFI, as the app calls them, against those answers |
+| `cargo test -p scratchpad-core` in `core/` | Every vector, including the file format byte for byte; the store's safety rules; kills under load; the old Linux store and the core reading each other |
+| `swift test` in `apple/` | The Swift tests, and `CoreParityTests`: 3,000 seeded operations on both stores, comparing folders byte for byte, and swapping one folder between them. Run it again with `SCRATCHPAD_STORE=rust` for every store test on the core |
+| `swift run -c release core-check speed 1000` | Swift against the core |
+| `node --experimental-transform-types --no-warnings shared/vectors/check-ts.mjs` | How far the TS copies are from Swift, with no packages |
+
+**Build:** `apple/scripts/build-core.sh`, then `xcodegen generate` in `apple/`. The Xcode project and CI need Rust now. There's no simulator slice, so CI builds for a generic iOS device.
+
+**Speed,** 1,000 generated sheets, median, an Intel Mac, not a phone. The Core column is through UniFFI, so it includes the bridge.
+
+| | Swift ms | Core ms | |
+|---|---|---|---|
+| List every sheet | 2,182 | 279 | 7.8x faster |
+| Load one sheet | 2.19 | 0.33 | 6.6x faster |
+| Save one sheet | 1.80 | 1.77 | level |
+| Evaluate a 200 x 12 table | 14.7 | 3.0 | 4.8x faster |
+| 2,000 date phrases | 186 | 6.6 | 28x faster |
+| 750 pastes | 27.7 | 6.1 | 4.5x faster |
+| Sort 300 to-dos A to Z | 3.4 | 0.7 | 4.7x faster |
+| Sidebar by day | 9.4 | 3.7 | 2.6x faster |
+| Sidebar by tag | 0.64 | 1.68 | 2.6x slower |
+| Markdown export, everything | 139 | 49 | 2.8x faster |
+| JSON export, everything | 137 | 62 | 2.2x faster |
+
+Most of Swift's list time is `ISODate.parse` building new formatters for every date, so a cached formatter would close part of that gap. Nobody has measured that. The sidebar by tag is slower because almost all of it is the crossing.
+
+**Differences that remain, on purpose or out of reach:**
+
+- Unknown fields survive the core, and don't survive the Swift store. That's the point of them. Carrying a to-do over drops them, as it's a new row.
+- `localizedCaseInsensitiveCompare` is approximated for A to Z. It agrees on every vector, including accents, emoji and Japanese, but it isn't full ICU collation, so an unusual script may sort differently.
+- `URL(string:)` is approximated in paste. It agrees on every vector.
+- Dates before 1582: Foundation goes to the Julian calendar, the core stays Gregorian. A duplicated JSON key: Swift takes the last, the core calls the file unreadable. Both are pinned in `known_differences`.
+- `store_asset` tidies the extension (lowercase, letters and digits, eight at most), as Linux did. Swift kept it as given.
+- On Linux, sheets are now written in Swift's shape: `font`, `fontSize` and `rotation` always, and empty to-do rows dropped. Older Linux builds read that fine, tested above.
+- `v: 3` is read as if it were 2 by every reader, so a newer format is still not refused. Keeping unknown fields softens that.
+
+**What hasn't run:** real sheets; iCloud, on any device; two devices; a fresh install with undownloaded sheets, where placeholders here are hand-made files; `startDownloadingUbiquitousItem` and `NSFileCoordinator` against the real daemon; the app itself with either switch, on any device or Mac; the Linux app, which only type-checks; the TS UI and vitest; the CI changes; any speed on a phone, or a big table crossing on a real save.

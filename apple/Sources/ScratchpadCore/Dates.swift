@@ -120,7 +120,7 @@ public enum DatePhrase {
     /// Returns a `YYYY-MM-DD` key for the phrase, relative to `today` (a day key), or nil.
     /// Accepts: today, tomorrow, yesterday, weekday names or 3+ letter prefixes (next occurrence, today counts),
     /// `15 oct`, `oct 15`, `15/10` (day/month), `2026-10-15`, `+3`, `-2`. A year may follow the day-month forms.
-    public static func parse(_ input: String, today: String) -> String? {
+    static func swiftParse(_ input: String, today: String) -> String? {
         let s = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .replacingOccurrences(of: ",", with: "")

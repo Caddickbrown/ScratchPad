@@ -28,7 +28,7 @@ public enum SidebarMode: String, CaseIterable, Identifiable, Sendable {
 
 public enum Sidebar {
     /// Dated sheets grouped by day, newest first. Pinned sheets have their own section.
-    public static func byDay(_ pads: [Pad], today: String) -> [SheetGroup] {
+    static func swiftByDay(_ pads: [Pad], today: String) -> [SheetGroup] {
         let dated = pads.filter { !$0.pinned && $0.date != nil }.sorted(by: PadStore.newestFirst)
         var groups: [SheetGroup] = []
         for p in dated {
@@ -40,7 +40,7 @@ public enum Sidebar {
     }
 
     /// Dated sheets grouped by month (`October 2026`), newest first; the detail is the sheet count.
-    public static func byMonth(_ pads: [Pad]) -> [SheetGroup] {
+    static func swiftByMonth(_ pads: [Pad]) -> [SheetGroup] {
         let dated = pads.filter { !$0.pinned && $0.date != nil }.sorted(by: PadStore.newestFirst)
         var groups: [SheetGroup] = []
         for p in dated {
@@ -53,14 +53,14 @@ public enum Sidebar {
     }
 
     /// Every dated sheet in one group, most recently edited first, whatever its date.
-    public static func recent(_ pads: [Pad]) -> [SheetGroup] {
+    static func swiftRecent(_ pads: [Pad]) -> [SheetGroup] {
         let dated = pads.filter { !$0.pinned && $0.date != nil }
             .sorted { $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : PadStore.newestFirst($0, $1) }
         return dated.isEmpty ? [] : [SheetGroup(id: "recent", label: "Recently edited", detail: String(dated.count), sheets: dated)]
     }
 
     /// One group per tag (a sheet appears under each of its tags), Untagged last.
-    public static func byTag(_ pads: [Pad], sort: TagSort) -> [SheetGroup] {
+    static func swiftByTag(_ pads: [Pad], sort: TagSort) -> [SheetGroup] {
         var order: [String] = []
         var members: [String: [Pad]] = [:]
         var recent: [String: Date] = [:]

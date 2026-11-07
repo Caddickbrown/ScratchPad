@@ -124,11 +124,11 @@ final class AppState: ObservableObject {
         let state: AppState
         let local: PadStore
         do {
-            local = try PadStore(root: try PadStore.defaultRoot())
+            local = try PadStore(root: try PadStore.defaultRoot(), backups: Backup.folder())
             state = AppState(store: local, resolvingStore: true)
         } catch { fatalError("Cannot open store: \(error)") }
         Task.detached(priority: .userInitiated) {
-            if let root = PadStore.iCloudRoot(), let cloud = try? PadStore(root: root) {
+            if let root = PadStore.iCloudRoot(), let cloud = try? PadStore(root: root, backups: Backup.folder()) {
                 await state.switchStore(to: cloud, from: local)
             } else {
                 await state.storeResolved()

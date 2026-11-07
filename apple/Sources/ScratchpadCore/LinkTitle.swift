@@ -15,7 +15,7 @@ public enum LinkTitle {
     }
 
     /// `<title>` text, entities decoded and whitespace collapsed.
-    public static func parse(_ html: String) -> String? {
+    static func swiftParse(_ html: String) -> String? {
         guard let r = html.range(of: #"(?is)<title\b[^>]*>(.*?)</title>"#, options: .regularExpression) else { return nil }
         let inner = String(html[r]).replacingOccurrences(of: #"(?is)^<title\b[^>]*>|</title>$"#, with: "", options: .regularExpression)
         let text = TableParser.decodeEntities(inner).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")

@@ -57,7 +57,7 @@ public enum Formula {
     public static func address(row: Int, col: Int) -> String { "\(columnName(col))\(row + 1)" }
 
     /// Numbers in cells: whitespace trimmed, `,` thousands separators removed, `£ $ € %` prefix/suffix ignored.
-    public static func parseNumber(_ raw: String) -> Double? {
+    static func swiftParseNumber(_ raw: String) -> Double? {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let marks: Set<Character> = ["£", "$", "€", "%"]
         var neg = false
@@ -72,7 +72,7 @@ public enum Formula {
     }
 
     /// Up to 4 decimals, trailing zeros trimmed, thousands separators for |x| >= 1000.
-    public static func format(_ value: Double) -> String {
+    static func swiftFormat(_ value: Double) -> String {
         guard value.isFinite else { return FormulaError.err.rawValue }
         let magnitude = abs(value)
         var intString: String, frac = ""
@@ -109,10 +109,13 @@ public final class TableEvaluator {
     public let columnCount: Int
     private var memo: [Int: CellValue] = [:]
     private var visiting: Set<Int> = []
+    /// Every cell, worked out by the core in one call. Nil on the Swift path.
+    private let grid: [[CellValue]]?
 
     public init(rows: [[String]]) {
         self.rows = rows
         self.columnCount = rows.map(\.count).max() ?? 0
+        self.grid = CoreRules.enabled ? CoreRules.evaluate(rows) : nil
     }
 
     public func raw(_ r: Int, _ c: Int) -> String {
@@ -121,7 +124,11 @@ public final class TableEvaluator {
     }
 
     public func value(row r: Int, col c: Int) -> CellValue {
-        (try? cell(r, c)) ?? .error(.ref)
+        if let grid {
+            guard r >= 0, c >= 0, r < rows.count, c < columnCount else { return .error(.ref) }
+            return c < grid[r].count ? grid[r][c] : .empty
+        }
+        return (try? cell(r, c)) ?? .error(.ref)
     }
 
     public func display(row r: Int, col c: Int) -> String { value(row: r, col: c).display }

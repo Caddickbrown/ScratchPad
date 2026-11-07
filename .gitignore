@@ -13,3 +13,4 @@ linux/src-tauri/target/
 linux/store/target/
 linux/src-tauri/gen/schemas/
 target/
+apple/Frameworks/

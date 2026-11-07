@@ -467,10 +467,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
  "windows-link",
 ]
 
@@ -2988,7 +2986,8 @@ name = "scratchpad"
 version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
- "scratchpad-store",
+ "chrono",
+ "scratchpad-core",
  "serde",
  "serde_json",
  "tauri",
@@ -3000,14 +2999,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "scratchpad-store"
-version = "0.2.0"
+name = "scratchpad-core"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
- "chrono",
+ "regex",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "unicode-segmentation",
  "uuid",
 ]
 

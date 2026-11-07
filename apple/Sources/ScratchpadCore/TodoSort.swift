@@ -23,7 +23,7 @@ public enum TodoSort {
 
     /// Stable sort. `doneSinks` pushes done rows to the bottom in every mode, Manual included.
     /// Empty rows always stay last.
-    public static func sorted(_ todos: [Todo], mode: TodoSortMode, doneSinks: Bool, now: Date = Date()) -> [Todo] {
+    static func swiftSorted(_ todos: [Todo], mode: TodoSortMode, doneSinks: Bool, now: Date = Date()) -> [Todo] {
         func compare(_ a: Todo, _ b: Todo) -> Int {
             if a.isFilled != b.isFilled { return a.isFilled ? -1 : 1 }
             if doneSinks {

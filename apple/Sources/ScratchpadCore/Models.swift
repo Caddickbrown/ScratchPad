@@ -48,6 +48,8 @@ public struct Block: Codable, Identifiable, Equatable, Sendable {
     public var italic: Bool
     /// Tables only: px per column.
     public var colWidths: [Int]?
+    /// Fields this build doesn't know, as JSON, kept by the core so a save can't drop them.
+    public var extras = ""
 
     public init(id: String = UUID().uuidString, kind: BlockKind, x: Int, y: Int, w: Int, h: Int? = nil,
                 text: String? = nil, rows: [[String]]? = nil, asset: String? = nil, name: String? = nil,
@@ -187,6 +189,8 @@ public struct Todo: Codable, Identifiable, Equatable, Sendable {
     public var status: TodoStatus
     public var createdAt: Date
     public var carriedFrom: String?
+    /// Fields this build doesn't know, as JSON, kept by the core so a save can't drop them.
+    public var extras = ""
 
     public init(id: String = UUID().uuidString, text: String = "", status: TodoStatus = .open,
                 createdAt: Date = Date(), carriedFrom: String? = nil) {
@@ -227,6 +231,8 @@ public struct Pad: Codable, Identifiable, Equatable, Sendable {
     public var updatedAt: Date
     public var blocks: [Block]
     public var todos: [Todo]
+    /// Fields this build doesn't know, as JSON, kept by the core so a save can't drop them.
+    public var extras = ""
 
     public init(id: String, date: String?, title: String = "", tags: [String] = [], pinned: Bool = false,
                 createdAt: Date = Date(), updatedAt: Date = Date(), blocks: [Block] = [], todos: [Todo] = []) {

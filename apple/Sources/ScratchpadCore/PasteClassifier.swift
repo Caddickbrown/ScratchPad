@@ -45,6 +45,7 @@ public enum PasteClassifier {
             }
         }
         if let data = c.imageData { return [.image(data, ext: c.imageExtension)] }
+        if CoreRules.enabled { return CoreRules.classify(plain: c.plain, html: c.html) }
         if let html = c.html, let rows = TableParser.rows(fromHTML: html), rows.count >= 1 { return [.table(rows)] }
         guard let plain = c.plain?.trimmingCharacters(in: .whitespacesAndNewlines), !plain.isEmpty else { return [] }
         if let rows = TableParser.rows(fromTSV: plain) { return [.table(rows)] }

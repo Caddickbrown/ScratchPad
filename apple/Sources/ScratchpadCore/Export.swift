@@ -29,7 +29,7 @@ public enum ExportMarkdown {
     /// `## <title or "Untitled sheet">, <ddd d MMM yyyy | Pinned>` then the checkbox list.
     /// `openOnly` (Every open to-do) keeps open rows (and deferred when ticked) and omits empty sections;
     /// empty sections are also dropped when several sheets are exported.
-    public static func todos(_ sheets: [Pad], includeDone: Bool = false, includeDeferred: Bool = true, openOnly: Bool = false) -> String {
+    static func swiftTodos(_ sheets: [Pad], includeDone: Bool = false, includeDeferred: Bool = true, openOnly: Bool = false) -> String {
         var sections: [String] = []
         for p in sortedNewestFirst(sheets) {
             let rows = p.todos.filter(\.isFilled).filter { t in
@@ -50,7 +50,7 @@ public enum ExportMarkdown {
     }
 
     /// GFM table with computed values; the first row is the header.
-    public static func table(_ rows: [[String]]) -> String {
+    static func swiftTable(_ rows: [[String]]) -> String {
         guard !rows.isEmpty else { return "" }
         let eval = TableEvaluator(rows: rows)
         let cols = max(1, eval.columnCount)
@@ -71,7 +71,7 @@ public enum ExportMarkdown {
         }.map(\.element)
     }
 
-    public static func sheet(_ p: Pad) -> String {
+    static func swiftSheet(_ p: Pad) -> String {
         let tagLine = p.tags.isEmpty ? "" : " · " + p.tags.map { "#\($0)" }.joined(separator: " ")
         var out = ["# \(p.displayTitle)", "", "_\(DayLabel.longDate(p.date))\(tagLine)_"]
         for b in readingOrder(p.blocks) {
@@ -96,7 +96,7 @@ public enum ExportMarkdown {
     }
 
     /// Everything, one Markdown file: sheets newest first, separated by a rule.
-    public static func everything(_ sheets: [Pad]) -> String {
+    static func swiftEverything(_ sheets: [Pad]) -> String {
         sortedNewestFirst(sheets).map(sheet).joined(separator: "\n\n---\n\n") + "\n"
     }
 }
@@ -174,6 +174,7 @@ public struct ScratchpadArchive: Codable, Equatable, Sendable {
     /// are sheets that won't read or haven't arrived: there's nothing to compare them with.
     @discardableResult
     public func importInto(_ store: PadStore) throws -> ImportResult {
+        if let imported = try store.importArchive(encoded()) { return imported }
         var result = ImportResult(sheets: 0, overwritten: 0, assetsWritten: 0, skipped: 0)
         for (path, b64) in assets.sorted(by: { $0.key < $1.key }) {
             guard ScratchpadArchive.isSafeAssetPath(path), let data = Data(base64Encoded: b64) else { result.skipped += 1; continue }
@@ -200,7 +201,7 @@ public struct ScratchpadArchive: Codable, Equatable, Sendable {
 
 public enum ExportJSON {
     /// Everything as JSON: an array of v2 sheets, newest first.
-    public static func sheets(_ sheets: [Pad]) throws -> Data {
+    static func swiftSheets(_ sheets: [Pad]) throws -> Data {
         try PadJSON.encoder.encode(sheets.map(\.compacted).sorted(by: PadStore.newestFirst))
     }
 }

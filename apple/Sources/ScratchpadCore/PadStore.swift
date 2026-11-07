@@ -1,4 +1,5 @@
 import Foundation
+import ScratchpadFFI
 
 /// File-backed store: <root>/pads/<id>.json and <root>/assets/<uuid>.<ext>.
 /// Same layout as the Linux store, so a synced folder works across both.
@@ -32,11 +33,40 @@ public final class PadStore: @unchecked Sendable {
 
     public let root: URL
     private let queue = DispatchQueue(label: "scratchpad.store")
+    /// The core, when it runs this store. Nil is the Swift store, which stays for a release.
+    private let library: PadLibrary?
 
-    public init(root: URL) throws {
+    /// Which store runs. Swift until a real device has proved the core against iCloud:
+    /// `defaults write com.caddickbrown.scratchpad ScratchpadStore rust`, or SCRATCHPAD_STORE=rust.
+    public enum Engine: String, Sendable {
+        case swift, rust
+        public static var chosen: Engine {
+            let word = ProcessInfo.processInfo.environment["SCRATCHPAD_STORE"] ?? UserDefaults.standard.string(forKey: "ScratchpadStore")
+            return word.flatMap(Engine.init(rawValue:)) ?? .swift
+        }
+    }
+
+    /// With the core chosen, `backups` is where a copy goes before it writes anything. If that
+    /// copy can't be made, this store stays on Swift.
+    public init(root: URL, engine: Engine = .chosen, backups: URL? = nil) throws {
         self.root = root
         try FileManager.default.createDirectory(at: root.appendingPathComponent("pads"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("assets"), withIntermediateDirectories: true)
+        guard engine == .rust else { library = nil; return }
+        if let backups {
+            do { try Backup.make(of: root, in: backups, now: Date()) } catch { library = nil; return }
+        }
+        library = PadLibrary.open(vault: AppleVault(root: root))
+    }
+
+    /// True when the core runs this store.
+    public var usesCore: Bool { library != nil }
+
+    /// The core's answer, with its errors in this store's words.
+    private func core<T>(_ body: () throws -> T) throws -> T {
+        do { return try body() }
+        catch LibraryError.StillDownloading { throw StoreError.stillDownloading }
+        catch LibraryError.InvalidId(let id) { throw StoreError.invalidID(id) }
     }
 
     /// Local location: Application Support/Scratchpad.
@@ -63,6 +93,10 @@ public final class PadStore: @unchecked Sendable {
     /// The sheets, and what couldn't be listed: a file that won't parse is reported, and an
     /// evicted iCloud file (a hidden `.<id>.json.icloud` stand-in) is asked for.
     public func scan() throws -> Scan {
+        if let library {
+            let found = try core { try library.scan() }
+            return Scan(pads: found.sheets.map(Pad.init(record:)), unreadable: found.unreadable, downloading: found.pending)
+        }
         let dir = root.appendingPathComponent("pads")
         var result = Scan()
         for file in try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
@@ -85,19 +119,25 @@ public final class PadStore: @unchecked Sendable {
     }
 
     /// The id in an iCloud stand-in's file name.
-    private static func placeholderID(_ name: String) -> String? {
+    static func placeholderID(_ name: String) -> String? {
         guard name.hasPrefix("."), name.hasSuffix(".json.icloud") else { return nil }
         return String(name.dropFirst().dropLast(".json.icloud".count))
     }
 
-    private func requestDownload(_ url: URL) {
+    private func requestDownload(_ url: URL) { PadStore.requestDownload(url) }
+
+    static func requestDownload(_ url: URL) {
         #if canImport(Darwin)
         try? FileManager.default.startDownloadingUbiquitousItem(at: url)
         #endif
     }
 
-    /// Runs a write under file coordination, so it never races the iCloud daemon.
     private func coordinated(_ url: URL, _ options: CoordinatedWrite, _ body: (URL) throws -> Void) throws {
+        try PadStore.coordinated(url, options, body)
+    }
+
+    /// Runs a write under file coordination, so it never races the iCloud daemon.
+    static func coordinated(_ url: URL, _ options: CoordinatedWrite, _ body: (URL) throws -> Void) throws {
         #if canImport(Darwin)
         var coordinationError: NSError?
         var bodyError: Error?
@@ -113,7 +153,7 @@ public final class PadStore: @unchecked Sendable {
         #endif
     }
 
-    private enum CoordinatedWrite { case replacing, deleting }
+    enum CoordinatedWrite { case replacing, deleting }
 
     /// One-off, when iCloud arrives: brings the sheets and pictures of `local` here. An id
     /// already here stays as it is. A sheet still downloading is left for next time, as it
@@ -168,6 +208,7 @@ public final class PadStore: @unchecked Sendable {
     }
 
     public func load(_ id: String) throws -> Pad? {
+        if let library { return try core { try library.load(id: id) }.map(Pad.init(record:)) }
         guard SheetID.isValid(id) else { return nil }
         let url = padURL(id)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
@@ -177,6 +218,9 @@ public final class PadStore: @unchecked Sendable {
     /// Writes v2 JSON. `touch` stamps updatedAt (off for imports, which keep their times). Empty to-do rows are dropped.
     @discardableResult
     public func save(_ pad: Pad, touch: Bool = true) throws -> Pad {
+        if let library {
+            return Pad(record: try core { try library.save(pad: pad.record, touchMs: touch ? Date().coreMillis : nil) })
+        }
         guard SheetID.isValid(pad.id) else { throw StoreError.invalidID(pad.id) }
         var p = pad.compacted
         if touch { p.updatedAt = Date() }
@@ -188,6 +232,7 @@ public final class PadStore: @unchecked Sendable {
     }
 
     public func delete(_ id: String) throws {
+        if let library { return try core { try library.delete(id: id) } }
         guard SheetID.isValid(id) else { throw StoreError.invalidID(id) }
         try coordinated(padURL(id), .deleting) { try FileManager.default.removeItem(at: $0) }
     }
@@ -199,6 +244,9 @@ public final class PadStore: @unchecked Sendable {
     /// gets a sheet with nothing carried, for the same reason.
     public func today(now: Date = Date(), timeZone: TimeZone = .current, ignoringDownloads: Bool = false) throws -> Pad {
         let key = DayKey.key(for: now, timeZone: timeZone)
+        if let library {
+            return Pad(record: try core { try library.today(nowMs: now.coreMillis, todayKey: key, ignoringDownloads: ignoringDownloads) })
+        }
         let scan = try scan()
         if let existing = scan.pads.filter({ $0.date == key }).max(by: { $0.updatedAt < $1.updatedAt }) { return existing }
         if !scan.downloading.isEmpty && !ignoringDownloads { throw StoreError.stillDownloading }
@@ -210,7 +258,11 @@ public final class PadStore: @unchecked Sendable {
     @discardableResult
     public func create(date: String, tags: [String] = [], title: String = "", now: Date = Date(),
                        timeZone: TimeZone = .current) throws -> Pad {
-        try create(date: date, tags: tags, title: title, now: now, timeZone: timeZone, among: try scan())
+        if let library {
+            let key = DayKey.key(for: now, timeZone: timeZone)
+            return Pad(record: try core { try library.create(date: date, tags: tags, title: title, nowMs: now.coreMillis, todayKey: key) })
+        }
+        return try create(date: date, tags: tags, title: title, now: now, timeZone: timeZone, among: try scan())
     }
 
     private func create(date: String, tags: [String], title: String = "", now: Date, timeZone: TimeZone, among scan: Scan) throws -> Pad {
@@ -227,6 +279,9 @@ public final class PadStore: @unchecked Sendable {
     /// New pinned sheet with a slug id.
     @discardableResult
     public func createPinned(title: String, tags: [String] = [], now: Date = Date()) throws -> Pad {
+        if let library {
+            return Pad(record: try core { try library.createPinned(title: title, tags: tags, nowMs: now.coreMillis) })
+        }
         let pad = Pad(id: SheetID.slug(title, existing: try scan().takenIDs), date: nil, title: title, tags: tags, pinned: true, createdAt: now, updatedAt: now)
         return try save(pad, touch: false)
     }
@@ -234,6 +289,7 @@ public final class PadStore: @unchecked Sendable {
     /// Duplicate: blocks and open to-dos copied, new ids, title + " copy". Same date (or pinned).
     @discardableResult
     public func duplicate(_ pad: Pad, now: Date = Date()) throws -> Pad {
+        if let library { return Pad(record: try core { try library.duplicate(pad: pad.record, nowMs: now.coreMillis) }) }
         let existing = try scan().takenIDs
         let newID: String
         if let d = pad.date {
@@ -255,6 +311,7 @@ public final class PadStore: @unchecked Sendable {
 
     /// Writes bytes into assets/ and returns the store-relative path to put in a block.
     public func storeAsset(_ data: Data, ext: String) throws -> String {
+        if let library { return try core { try library.storeAsset(data: data, ext: ext) } }
         let name = "assets/\(UUID().uuidString.lowercased()).\(ext.isEmpty ? "bin" : ext)"
         try coordinated(root.appendingPathComponent(name), .replacing) { try data.write(to: $0, options: .atomic) }
         return name
@@ -265,4 +322,14 @@ public final class PadStore: @unchecked Sendable {
     }
 
     public func assetURL(_ rel: String) -> URL { root.appendingPathComponent(rel) }
+
+    /// The core's import, when it runs this store. Nil leaves it to `ScratchpadArchive`.
+    func importArchive(_ data: Data) throws -> ScratchpadArchive.ImportResult? {
+        guard let library else { return nil }
+        let r = try core { try library.importArchive(data: data) }
+        var result = ScratchpadArchive.ImportResult(sheets: Int(r.sheets), overwritten: Int(r.overwritten),
+                                                    assetsWritten: Int(r.assetsWritten), skipped: Int(r.skipped))
+        result.keptNewer = Int(r.keptNewer)
+        return result
+    }
 }

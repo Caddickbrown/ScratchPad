@@ -3,9 +3,9 @@ name: Apple
 on:
   push:
     branches: [master]
-    paths: ["apple/**", "shared/**", ".github/workflows/apple.yml"]
+    paths: ["apple/**", "core/**", "shared/**", ".github/workflows/apple.yml"]
   pull_request:
-    paths: ["apple/**", "shared/**", ".github/workflows/apple.yml"]
+    paths: ["apple/**", "core/**", "shared/**", ".github/workflows/apple.yml"]
 
 jobs:
   core:
@@ -14,7 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      - run: apple/scripts/build-core.sh --host-only
       - run: swift test
+        working-directory: apple
+      - run: swift run core-check check
         working-directory: apple
 
   app:
@@ -26,11 +29,13 @@ jobs:
       matrix:
         include:
           - destination: "platform=macOS"
-          - destination: "generic/platform=iOS Simulator"
+          - destination: "generic/platform=iOS"
     steps:
       - uses: actions/checkout@v4
       - run: sudo xcode-select -s /Applications/Xcode_16.2.app
       - run: brew install xcodegen
+      - run: rustup target add aarch64-apple-ios
+      - run: apple/scripts/build-core.sh
       - run: xcodegen generate
         working-directory: apple
       - run: |

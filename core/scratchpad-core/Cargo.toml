@@ -1,0 +1,19 @@
+[package]
+name = "scratchpad-core"
+description = "Scratchpad's model, store, formulas, dates, paste, sorting, exports and archive. Files go through a Vault."
+version = "0.3.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case", "unicode-gencat"] }
+base64 = "0.22"
+unicode-segmentation = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+# The old Linux store, to prove each reads what the other writes. Goes with the Swift copies.
+scratchpad-store = { path = "../../linux/store" }

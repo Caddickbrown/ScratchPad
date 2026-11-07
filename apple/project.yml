@@ -6,6 +6,10 @@ options:
     iOS: "18.0"
     macOS: "15.0"
   xcodeVersion: "16.0"
+  # The rules are in core/, and the xcframework isn't committed.
+  preGenCommand: >-
+    test -d Frameworks/ScratchpadCoreFFI.xcframework ||
+    { echo "error: no core. Run apple/scripts/build-core.sh first, then xcodegen." >&2; exit 1; }
 packages:
   ScratchpadCore:
     path: .
