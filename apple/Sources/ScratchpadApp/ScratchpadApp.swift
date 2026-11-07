@@ -68,25 +68,42 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section {
+            Section("Look") {
                 Picker("Appearance", selection: $appearance) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }.pickerStyle(.segmented)
-                Picker("Whimsy", selection: $whimsy) {
-                    ForEach(WhimsyLevel.allCases) { Text($0.label).tag($0) }
-                }.pickerStyle(.segmented)
-                if reduceMotion {
-                    Text("Reduce Motion is on in system settings, so animations are off.").font(Fonts.ui(11)).foregroundStyle(.secondary)
-                }
-                Picker("Default font", selection: $defaultFont) {
+                Picker("Font for new blocks", selection: $defaultFont) {
                     ForEach(BlockFont.allCases) { f in Text(f.label).font(Fonts.block(f, size: 13)).tag(f) }
                 }
             }
             Section {
-                LabeledContent("Store") {
-                    Text(state.store.root.path).font(Fonts.mono(11)).textSelection(.enabled).lineLimit(2)
+                Picker("Animation", selection: $whimsy) {
+                    ForEach(WhimsyLevel.allCases) { Text($0.label).tag($0) }
+                }.pickerStyle(.segmented)
+            } header: {
+                Text("Motion")
+            } footer: {
+                Text(reduceMotion ? "Reduce Motion is on in system settings, so animations are off."
+                                  : "How much sheets peel and blocks fall into place.")
+            }
+            Section {
+                LabeledContent("Kept on") { Text(StoreWords.place(usingICloud: state.usingICloud)) }
+                LabeledContent("Folder") { Text(StoreWords.folder(state.store.root.path)) }
+            } header: {
+                Text("Your sheets")
+            } footer: {
+                Text(StoreWords.meaning(usingICloud: state.usingICloud))
+            }
+            // The Mac has these in its menus. Here Settings is a sheet, and goes first.
+            if showsDone {
+                Section("Import and export") {
+                    Button { leave(then: { state.flush(); state.showExport = true }) } label: {
+                        Label("Export…", systemImage: "square.and.arrow.up")
+                    }
+                    Button { leave(then: { state.showImport = true }) } label: {
+                        Label("Import an archive…", systemImage: "square.and.arrow.down")
+                    }
                 }
-                LabeledContent("Sync") { Text(state.usingICloud ? "iCloud Drive" : "This device") }
             }
         }
         .formStyle(.grouped)
@@ -94,5 +111,11 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .toolbar { if showsDone { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } } }
         #endif
+    }
+
+    /// Closes Settings, then opens what's next once it's gone: one sheet can't open over another going away.
+    private func leave(then next: @escaping () -> Void) {
+        state.showSettings = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: next)
     }
 }
