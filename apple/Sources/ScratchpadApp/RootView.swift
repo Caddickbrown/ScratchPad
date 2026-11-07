@@ -230,15 +230,18 @@ struct RootView: View {
                         .onAppear { state.open(id) }
                         .toolbar {
                             ToolbarItemGroup(placement: .primaryAction) {
-                                PasteButton()
                                 Button { state.showTodoSheet = true } label: { Label("To-do", systemImage: "checklist") }
+                                // Two menus: what goes on the sheet, and what happens to it.
                                 Menu {
+                                    PasteButton()
+                                    Divider()
                                     insertMenuItems
-                                    Divider()
-                                    Button { state.flush(); state.showExport = true } label: { Label("Export…", systemImage: "square.and.arrow.up") }
-                                    Button { state.showImport = true } label: { Label("Import archive…", systemImage: "square.and.arrow.down") }
-                                    Divider()
-                                    Button(role: .destructive) { state.confirmingDelete = state.current } label: { Label("Delete this sheet…", systemImage: "trash") }
+                                } label: { Label("Insert", systemImage: "plus") }
+                                Menu {
+                                    ForEach(SheetMenus.more, id: \.self) { action in
+                                        if action == .delete { Divider() }
+                                        sheetAction(action)
+                                    }
                                 } label: { Label("More", systemImage: "ellipsis") }
                             }
                             .plainBackground()
@@ -262,8 +265,19 @@ struct RootView: View {
     }
 
     @ViewBuilder private var insertMenuItems: some View {
-        ForEach([BlockKind.text, .table, .code, .link, .divider], id: \.self) { k in
-            Button(k.label) { insertBlock(k) }
+        ForEach(SheetMenus.insert, id: \.self) { k in
+            Button { insertBlock(k) } label: { Label(k.label, systemImage: SheetMenus.symbol(k)) }
+        }
+    }
+
+    @ViewBuilder private func sheetAction(_ action: SheetAction) -> some View {
+        switch action {
+        case .duplicate:
+            Button { animate(motion.peel) { state.duplicateCurrent() } } label: { Label("Duplicate this sheet", systemImage: "plus.square.on.square") }
+        case .export:
+            Button { state.flush(); state.showExport = true } label: { Label("Export…", systemImage: "square.and.arrow.up") }
+        case .delete:
+            Button(role: .destructive) { state.confirmingDelete = state.current } label: { Label("Delete this sheet…", systemImage: "trash") }
         }
     }
 
