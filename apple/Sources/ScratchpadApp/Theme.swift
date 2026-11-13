@@ -5,18 +5,22 @@ import ScratchpadCore
 struct Palette {
     var desk: Color, paper: Color, ink: Color, muted: Color, rule: Color, hairline: Color, dot: Color
     var accent: Color, accentInk: Color, overdue: Color, chrome: Color, cell: Color, codeBg: Color, codeInk: Color
+    /// Delete and anything else that can't be taken back: always red, never the accent or overdue's orange.
+    var danger: Color
 
     static let light = Palette(
         desk: Color(hex: 0xEDECE7), paper: Color(hex: 0xFBFBF9), ink: Color(hex: 0x1E1E1C), muted: Color(hex: 0x6B6B66),
         rule: Color(hex: 0x8A8A86), hairline: Color(hex: 0xD6D5CF), dot: Color(hex: 0xC4C3BD),
         accent: Color(hex: 0x2E5BDA), accentInk: .white, overdue: Color(hex: 0xC2410C), chrome: Color(hex: 0xF4F3EF),
-        cell: .white, codeBg: Color(hex: 0x1E1E1C), codeInk: Color(hex: 0xFBFBF9))
+        cell: .white, codeBg: Color(hex: 0x1E1E1C), codeInk: Color(hex: 0xFBFBF9),
+        danger: Color(hex: 0xC62828))
 
     static let dark = Palette(
         desk: Color(hex: 0x141413), paper: Color(hex: 0x1E1E1C), ink: Color(hex: 0xECEAE4), muted: Color(hex: 0xA3A29C),
         rule: Color(hex: 0x6B6B66), hairline: Color(hex: 0x33332F), dot: Color(hex: 0x3A3A37),
         accent: Color(hex: 0x6E8DF5), accentInk: Color(hex: 0x0B1230), overdue: Color(hex: 0xF08A5B), chrome: Color(hex: 0x1A1A19),
-        cell: Color(hex: 0x262624), codeBg: Color(hex: 0x0F0F0E), codeInk: Color(hex: 0xECEAE4))
+        cell: Color(hex: 0x262624), codeBg: Color(hex: 0x0F0F0E), codeInk: Color(hex: 0xECEAE4),
+        danger: Color(hex: 0xF26B6B))
 
     static func forScheme(_ scheme: ColorScheme) -> Palette { scheme == .dark ? .dark : .light }
 }

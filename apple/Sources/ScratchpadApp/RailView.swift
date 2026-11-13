@@ -171,7 +171,7 @@ struct RailView: View {
         NavigationLink(value: pad.id) { SheetRow(pad: pad, showsDate: rowsShowDate) }.tag(pad.id)
             .swipeActions(edge: .trailing) {
                 Button { state.confirmingDelete = pad } label: { Label("Delete", systemImage: "trash") }
-                    .tint(p.overdue)
+                    .tint(p.danger)
             }
             .id(Self.rowID(pad, groupID: groupID))
             .onAppear { rowAppeared(Self.rowID(pad, groupID: groupID)) }

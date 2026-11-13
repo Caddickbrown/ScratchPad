@@ -598,9 +598,9 @@ struct BlockToolbar: View {
                     Image(systemName: "trash")
                     Text("Delete").font(Fonts.ui(12, .medium))
                 }
-                .foregroundStyle(p.overdue)
+                .foregroundStyle(p.danger)
                 .padding(.horizontal, 8).frame(height: 26)
-                .background(p.overdue.opacity(0.1), in: RoundedRectangle(cornerRadius: 5))
+                .background(p.danger.opacity(0.1), in: RoundedRectangle(cornerRadius: 5))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
