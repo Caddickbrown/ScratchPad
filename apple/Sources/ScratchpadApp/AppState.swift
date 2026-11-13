@@ -379,7 +379,7 @@ final class AppState: ObservableObject {
     /// Drops a to-do onto the canvas as a text block and removes the row.
     func todoToBlock(_ id: String, at point: CGPoint, font: BlockFont = .sans) {
         guard let todo = current?.todos.first(where: { $0.id == id }), todo.isFilled else { return }
-        var b = Block(kind: .text, x: Int(point.x), y: Int(point.y), w: 408, text: todo.text, font: font)
+        var b = Block(kind: .text, x: Int(point.x), y: Int(point.y), w: TodoDrag.blockWidth, text: todo.text, font: font)
         b.snap()
         current?.blocks.append(b)
         current?.todos.removeAll { $0.id == id }

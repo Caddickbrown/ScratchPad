@@ -43,6 +43,12 @@ struct MonitorLiveBlock {
     @Published fileprivate(set) var current: MonitorLiveBlock?
 }
 
+/// A to-do dragged over the phone's sheet: where its block will land. On its own, like `MonitorLive`,
+/// as it changes with every touch.
+@MainActor final class MonitorDrop: ObservableObject {
+    @Published fileprivate(set) var landing: (sheetID: String, point: CGPoint)?
+}
+
 /// How far the paper reaches on the monitor, in canvas points, for the sheet it shows. On its own for
 /// the same reason as `MonitorLive`: the phone's canvas watches this, and must not hear every scroll.
 @MainActor final class MonitorPaper: ObservableObject {
@@ -88,6 +94,9 @@ struct MonitorHold: Equatable {
     @Published private(set) var hold: MonitorHold?
     let live = MonitorLive()
     let paper = MonitorPaper()
+    let drop = MonitorDrop()
+    /// The to-do a dragged one would land in front of, as the phone's column shows it.
+    @Published private(set) var todoTarget: (sheetID: String, todoID: String)?
 
     /// Kept while nothing is attached, so connecting draws the frame straight away.
     private var latest: (sheetID: String, rect: MonitorViewport)?
@@ -131,6 +140,26 @@ struct MonitorHold: Equatable {
         if live.current != nil { live.current = nil }
     }
 
+    /// A to-do dragged over the phone's sheet, or nil once it's gone or dropped.
+    func todoLanding(sheetID: String?, _ point: CGPoint?) {
+        guard isConnected || drop.landing != nil else { return }
+        if let sheetID, let point {
+            if drop.landing?.sheetID != sheetID || drop.landing?.point != point { drop.landing = (sheetID, point) }
+        } else if drop.landing != nil {
+            drop.landing = nil
+        }
+    }
+
+    /// A dragged to-do over a row of the phone's column, or off it.
+    func todoTargeted(sheetID: String, _ todoID: String, _ on: Bool) {
+        if on {
+            guard isConnected else { return }
+            if todoTarget?.sheetID != sheetID || todoTarget?.todoID != todoID { todoTarget = (sheetID, todoID) }
+        } else if todoTarget?.todoID == todoID {
+            todoTarget = nil
+        }
+    }
+
     func displayDidConnect() {
         isConnected = true
         viewport = latest
@@ -140,6 +169,8 @@ struct MonitorHold: Equatable {
     func displayDidDisconnect() {
         ScratchpadCommandMenu.host.close()
         isConnected = false
+        drop.landing = nil
+        todoTarget = nil
         viewport = nil
         paper.clear()
         state?.monitorPaper = nil
@@ -293,7 +324,8 @@ struct MonitorRoot: View {
         Themed {
             Group {
                 if let state = model.state {
-                    MonitorBoard(viewport: model.viewport, hold: model.hold, atHome: model.atHome).environmentObject(state)
+                    MonitorBoard(viewport: model.viewport, hold: model.hold, atHome: model.atHome,
+                                 todoTarget: model.todoTarget).environmentObject(state)
                 } else {
                     Color.clear
                 }
@@ -327,6 +359,7 @@ struct MonitorBoard: View {
     let viewport: (sheetID: String, rect: MonitorViewport)?
     let hold: MonitorHold?
     let atHome: Bool
+    let todoTarget: (sheetID: String, todoID: String)?
 
     var body: some View {
         GeometryReader { geo in
@@ -342,7 +375,9 @@ struct MonitorBoard: View {
                             MonitorSheet(pad: pad, selectedID: state.selectedBlockID,
                                          viewport: viewport?.sheetID == pad.id ? viewport?.rect : nil,
                                          hold: hold?.sheetID == pad.id ? hold : nil)
-                            MonitorTodos(pad: pad, metrics: m).frame(width: m.column)
+                            MonitorTodos(pad: pad, metrics: m,
+                                         target: todoTarget?.sheetID == pad.id ? todoTarget?.todoID : nil)
+                                .frame(width: m.column)
                         }
                     }
                     .padding(m.padding)
@@ -460,6 +495,7 @@ struct MonitorSheet: View {
                 if let hold {
                     MonitorLiveLayer(live: MonitorModel.shared.live, height: heights[hold.blockID] ?? 120)
                 }
+                MonitorDropLayer(drop: MonitorModel.shared.drop, sheetID: pad.id)
                 if let v = viewport {
                     ViewportFrame(rect: v.visible, scale: scale, accent: p.accent)
                 }
@@ -520,6 +556,18 @@ private struct MonitorLiveLayer: View {
             MonitorBlock(block: held.block, selected: true)
                 .shadow(color: .black.opacity(held.isMoving ? 0.22 : 0), radius: 14, y: 8)
                 .offset(held.offset)
+        }
+    }
+}
+
+/// Where a to-do being dragged on the phone will land on the sheet, as the phone's own outline shows it.
+private struct MonitorDropLayer: View {
+    @ObservedObject var drop: MonitorDrop
+    let sheetID: String
+
+    var body: some View {
+        if let landing = drop.landing, landing.sheetID == sheetID {
+            LandingGuide.forTodo(at: landing.point)
         }
     }
 }
@@ -672,6 +720,8 @@ private struct MonitorTodos: View {
     @Environment(\.palette) var p
     let pad: Pad
     let metrics: MonitorMetrics
+    /// The row a dragged to-do would land in front of: a line above it, as on the phone.
+    let target: String?
 
     var body: some View {
         let rows = pad.todos.filter(\.isFilled)
@@ -697,6 +747,11 @@ private struct MonitorTodos: View {
                         .lineLimit(3)
                 }
                 .font(Fonts.ui(metrics.text * 0.9))
+                .overlay(alignment: .top) {
+                    if todo.id == target {
+                        Rectangle().fill(p.accent).frame(height: 3).offset(y: -metrics.text * 0.35)
+                    }
+                }
             }
             Spacer(minLength: 0)
         }

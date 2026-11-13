@@ -269,10 +269,19 @@ struct TodoRow: View {
         }
         .dropDestination(for: String.self) { items, location in
             guard let id = items.compactMap(TodoDrag.id).first, id != todo.id else { return false }
+            #if os(iOS)
+            TodoDrag.active = nil
+            #endif
             let half: CGFloat = compact ? 22 : 17
             onDrop(id, location.y >= half && !isBlank)
             return true
-        } isTargeted: { dropTarget = $0 }
+        } isTargeted: { on in
+            dropTarget = on
+            #if os(iOS)
+            // The monitor draws the same line in its list, so a reorder can be watched there.
+            if let sheetID = state.current?.id { MonitorModel.shared.todoTargeted(sheetID: sheetID, todo.id, on) }
+            #endif
+        }
         .onChange(of: todo.status) { _, new in if new == .done && !motion.isOff { ticks += 1 } }
     }
 
@@ -285,13 +294,23 @@ struct TodoRow: View {
             .contentShape(Rectangle())
             .wiggle(trigger: motion.isFull ? gripHovers : 0)
             .onHover { if $0 && !isBlank { gripHovers += 1 } }
-            .draggable(TodoDrag.payload(todo.id)) {
-                Text(todo.text.isEmpty ? "(empty)" : todo.text).font(Fonts.ui(13)).padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(p.cell).overlay(Rectangle().stroke(p.accent, lineWidth: 1))
-            }
+            #if os(iOS)
+            // As `draggable`, but it says when the drag starts, so the canvas and the monitor can show it.
+            .onDrag {
+                TodoDrag.active = todo.id
+                return NSItemProvider(object: TodoDrag.payload(todo.id) as NSString)
+            } preview: { dragPreview }
+            #else
+            .draggable(TodoDrag.payload(todo.id)) { dragPreview }
+            #endif
             .accessibilityLabel("Drag to reorder, onto the sheet, or onto another sheet")
             .opacity(isBlank ? 0 : 1)
             .allowsHitTesting(!isBlank)
+    }
+
+    private var dragPreview: some View {
+        Text(todo.text.isEmpty ? "(empty)" : todo.text).font(Fonts.ui(13)).padding(.horizontal, 10).padding(.vertical, 4)
+            .background(p.cell).overlay(Rectangle().stroke(p.accent, lineWidth: 1))
     }
 
     /// Status circle: click cycles open, done, deferred. Ticking pops the circle, draws the tick and throws flecks.
@@ -398,4 +417,12 @@ enum TodoDrag {
     static let prefix = "scratchpad-todo:"
     static func payload(_ id: String) -> String { prefix + id }
     static func id(_ s: String) -> String? { s.hasPrefix(prefix) ? String(s.dropFirst(prefix.count)) : nil }
+
+    /// The to-do being dragged, from the moment it's picked up: the canvas reads it while the drag is
+    /// still over it, to show where the new block will land. A drop only trusts it once the dropped
+    /// text says the same.
+    @MainActor static var active: String?
+
+    /// A text block made from a to-do starts this wide (`AppState.todoToBlock`).
+    static let blockWidth = 408
 }

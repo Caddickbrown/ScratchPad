@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import ScratchpadCore
 
 /// Modifier keys at the moment of a gesture. macOS reads them from NSEvent; iOS has no global query,
@@ -31,6 +32,8 @@ struct CanvasView: View {
     @State private var heights: [String: CGFloat] = [:]
     @State private var moving: (id: String, t: CGSize)?
     @State private var resizing: Block?
+    /// Where a to-do dragged over the sheet will land, while it's over it.
+    @State private var todoLanding: CGPoint?
     @FocusState private var canvasFocused: Bool
     #if os(iOS)
     /// The monitor's paper, on its own so a scroll doesn't redraw the canvas (`MonitorPaper`).
@@ -93,6 +96,9 @@ struct CanvasView: View {
                     LandingGuide(block: b, height: height(of: b), offset: m.t, snap: !Modifiers.option)
                         .zIndex(1.5)
                 }
+                if let at = todoLanding {
+                    LandingGuide.forTodo(at: at).zIndex(1.5)
+                }
                 ForEach(blocks) { block in
                     CanvasBlock(
                         block: resizing?.id == block.id ? resizing! : block,
@@ -128,11 +134,18 @@ struct CanvasView: View {
                 }
             }
             .coordinateSpace(name: "canvas")
+            #if os(iOS)
+            // A to-do dragged over the sheet shows where its block will land, here and on the monitor.
+            .onDrop(of: [.plainText], delegate: TodoCanvasDrop(landing: $todoLanding, sheetID: state.current?.id) { id, location in
+                animate(motion.fall) { state.todoToBlock(id, at: location, font: defaultFont) }
+            })
+            #else
             .dropDestination(for: String.self) { items, location in
                 guard let id = items.compactMap(TodoDrag.id).first else { return false }
                 animate(motion.fall) { state.todoToBlock(id, at: location, font: defaultFont) }
                 return true
             }
+            #endif
             #if os(macOS)
             .onDrop(of: PasteBridge.readableTypes, isTargeted: nil) { providers, location in
                 PasteBridge.read(providers: providers) { contents in
@@ -247,6 +260,61 @@ struct CanvasView: View {
             .transition(.asymmetric(insertion: .offset(y: 12).combined(with: .opacity), removal: .opacity))
             .id(d.token)
         }
+    }
+}
+
+#if os(iOS)
+/// A to-do dragged from the column onto the sheet: while it's over the sheet, where its block will
+/// land, for the phone's outline and the monitor's; on the drop, the block.
+struct TodoCanvasDrop: DropDelegate {
+    @Binding var landing: CGPoint?
+    let sheetID: String?
+    let drop: (String, CGPoint) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        TodoDrag.active != nil && info.hasItemsConforming(to: [.plainText])
+    }
+
+    func dropEntered(info: DropInfo) { show(info.location) }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard validateDrop(info: info) else { return DropProposal(operation: .forbidden) }
+        show(info.location)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) { clear() }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let location = info.location
+        clear()
+        guard let expected = TodoDrag.active, let provider = info.itemProviders(for: [.plainText]).first else { return false }
+        TodoDrag.active = nil
+        // The text carried is the word on which to-do it is; `active` only says which one to expect.
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let text = object as? NSString, TodoDrag.id(text as String) == expected else { return }
+            Task { @MainActor in drop(expected, location) }
+        }
+        return true
+    }
+
+    private func show(_ point: CGPoint) {
+        if landing != point { landing = point }
+        if let sheetID { MonitorModel.shared.todoLanding(sheetID: sheetID, point) }
+    }
+
+    private func clear() {
+        landing = nil
+        MonitorModel.shared.todoLanding(sheetID: nil, nil)
+    }
+}
+#endif
+
+extension LandingGuide {
+    /// Where a to-do dropped at `point` lands: a text block's width, snapped as `todoToBlock` snaps it.
+    static func forTodo(at point: CGPoint) -> LandingGuide {
+        LandingGuide(block: Block(kind: .text, x: Int(point.x), y: Int(point.y), w: TodoDrag.blockWidth),
+                     height: 48, offset: .zero, snap: true)
     }
 }
 
