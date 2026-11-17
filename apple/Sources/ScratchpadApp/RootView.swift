@@ -13,6 +13,15 @@ struct RootView: View {
     #endif
     /// Whether the rail is showing, remembered so a folded rail stays folded.
     @AppStorage(SettingsKey.sidebarColumns) private var storedColumns: SplitColumns = .all
+    // What ⌘K can change, beside what's here already.
+    @AppStorage(SettingsKey.sidebarMode) private var sidebarMode: SidebarMode = .byDay
+    @AppStorage(SettingsKey.tagSort) private var tagSort: TagSort = .alphabetical
+    @AppStorage(SettingsKey.todoSort) private var todoSort: TodoSortMode = .manual
+    @AppStorage(SettingsKey.doneSinks) private var doneSinks = true
+    @AppStorage(SettingsKey.todoColumnHidden) private var todoColumnHidden = false
+    @AppStorage(SettingsKey.whimsy) private var whimsy: WhimsyLevel = .full
+    @AppStorage(SettingsKey.defaultFont) private var defaultFont: BlockFont = .sans
+    @Environment(\.openURL) private var openURL
     @State private var pinnedTitle = ""
     /// The iPhone stack's path: the open sheet is pushed onto it when the window turns compact
     /// (folding an iPhone Duo), so the fold keeps you on the sheet rather than the rail.
@@ -34,7 +43,9 @@ struct RootView: View {
         .onAppear {
             MonitorModel.shared.attach(state)
             ScratchpadCommandMenu.host.perform = runCommand
+            ScratchpadCommandMenu.watch(state)
         }
+        .onChange(of: compact, initial: true) { _, c in ScratchpadCommandMenu.compact = c }
         .background { MonitorEscape(stepBack: stepBack, deleteBlock: deleteSelectedBlock) }
         .onChange(of: compact && phonePath.isEmpty, initial: true) { _, home in MonitorModel.shared.atHome = home }
         .onChange(of: scheme, initial: true) { _, s in MonitorModel.shared.colorScheme = s }
@@ -101,6 +112,23 @@ struct RootView: View {
             if case .success(let url) = result { state.importArchive(from: url) }
         }
         .overlay(alignment: .bottom) {
+            // Something ⌘K took away: a tag, a to-do, a table's row or column.
+            if let undo = state.sheetUndo, undo.before.id == state.current?.id, state.notice == nil {
+                HStack(spacing: 10) {
+                    Text(undo.done).font(Fonts.ui(13)).foregroundStyle(p.paper)
+                        .lineLimit(1)
+                    Text("·").foregroundStyle(p.paper.opacity(0.6))
+                    Button { animate(motion.fall) { state.undoSheetChange() } } label: {
+                        Text("Undo").font(Fonts.ui(13, .semibold)).foregroundStyle(p.paper).underline()
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 9)
+                .background(p.ink, in: Capsule())
+                .padding(.bottom, 24)
+                .transition(.opacity)
+                .id(undo.token)
+            }
             if let notice = state.notice {
                 Text(notice).font(Fonts.ui(13, .medium)).foregroundStyle(p.paper)
                     .padding(.horizontal, 14).padding(.vertical, 8)
@@ -128,36 +156,144 @@ struct RootView: View {
     }
 
     #if os(iOS)
-    /// What each ⌘K row does. Deleting raises the same alert the menus do.
+    /// What each ⌘K row does. Deleting a sheet raises the same alert the menus do; everything else that takes
+    /// something away has Undo.
     private func runCommand(_ command: ScratchpadCommand) {
+        ScratchpadCommandMenu.ran()
         switch command {
-        case .sheets:
-            phonePath = []
-            if !compact { storedColumns = .all }
+        // Getting around
+        case .sheets: showList()
         case .today:
             state.openToday()
             if compact, let id = state.current?.id { phonePath = [id] }
         case .settings: state.showSettings = true
-        case .newSheet: state.newSheetToday()
-        case .newOnDate: state.askingNewOnDate = true
-        case .newPinned: state.askingPinned = true
-        case .duplicate: state.duplicateCurrent()
-        case .askDelete: state.confirmingDelete = state.current
-        case .insert(let kind):
-            switch kind {
-            case .text: insertBlock(.text)
-            case .table: insertBlock(.table)
-            case .code: insertBlock(.code)
-            case .link: insertBlock(.link)
-            case .divider: insertBlock(.divider)
-            }
-        case .todos: state.showTodoSheet = true
+        case .open(let id):
+            state.open(id)
+            if compact { phonePath = [id] }
+        case .search(let words):
+            state.searchText = words
+            showList()
+        case .clearSearch: state.searchText = ""
+        case .railMode(let m):
+            if let mode = SidebarMode(rawValue: m) { sidebarMode = mode }
+            showList()
+        case .tagSort(let t):
+            if let sort = TagSort(rawValue: t) { tagSort = sort }
+            sidebarMode = .byTag
+            showList()
+        case .sidebar(let show): storedColumns = show ? .all : .detailOnly
+
+        // The sheet
+        case .newSheet: animate(motion.peel) { state.newSheetToday() }
+        case .newOnDate(let day): animate(motion.peel) { state.newSheet(on: day) }
+        case .chooseNewDate: state.askingNewOnDate = true
+        case .newPinned(let title): animate(motion.peel) { state.newPinnedSheet(title: title) }
+        case .duplicate: animate(motion.peel) { state.duplicateCurrent() }
+        case .askDelete(let id):
+            state.confirmingDelete = state.current?.id == id ? state.current : state.pads.first { $0.id == id }
+        case .rename(let title): state.current?.title = title
+        case .moveSheet(let day): state.moveCurrent(to: day)
+        case .chooseSheetDate: state.openHeaderPopover(.date)
+        case .addTag(let tag): state.addTag(tag)
+        case .removeTag(let tag): state.removeTagUndoably(tag)
         case .export:
             state.flush()
             state.showExport = true
         case .importArchive: state.showImport = true
-        case .undoDelete: state.undoDelete()
+        case .copyImage:
+            guard let pad = state.current,
+                  let png = SheetImage.render(pad, store: state.store, scheme: scheme) else { state.error = "The sheet couldn't be drawn."; return }
+            Clipboard.copyImage(png)
+            state.notice = "Copied the sheet as an image"
+        case .copyTodos:
+            guard let pad = state.current else { return }
+            Clipboard.copyText(ExportMarkdown.todos([pad]))
+            state.notice = "Copied the to-dos as Markdown"
+        case .copyEverything:
+            state.flush()
+            Clipboard.copyText(ExportMarkdown.everything(state.pads))
+            state.notice = "Copied \(state.pads.count) sheet\(state.pads.count == 1 ? "" : "s") as Markdown"
+
+        // Blocks
+        case .insert(let kind): if let k = BlockKind(rawValue: kind) { insertBlock(k) }
+        case .paste:
+            let contents = PasteBridge.read()
+            animate(motion.fall) { state.paste(contents, font: defaultFont) }
+        case .selectBlock(let id): state.selectBlock(id)
+        case .deselect: state.selectedBlockID = nil
+        case .deleteBlock(let id): animate(motion.delete) { state.deleteBlock(id) }
+        case .duplicateBlock(let id): animate(motion.fall) { state.duplicateBlock(id) }
+        case .rotate(let id): animate(motion.lift) { state.mutate(id) { $0.rotateStep() } }
+        case .unrotate(let id): animate(motion.lift) { state.mutate(id) { $0.rotation = 0 } }
+        case .font(let id, let f): if let font = BlockFont(rawValue: f) { state.mutate(id) { $0.font = font } }
+        case .fontSize(let id, let n): state.mutate(id) { $0.fontSize = min(Block.fontSizeRange.upperBound, max(Block.fontSizeRange.lowerBound, n)) }
+        case .bold(let id, let on): state.mutate(id) { $0.bold = on }
+        case .italic(let id, let on): state.mutate(id) { $0.italic = on }
+        case .addRow(let id): state.addTableRow(id)
+        case .addColumn(let id): state.addTableColumn(id)
+        case .removeRow(let id): state.removeTableRow(id)
+        case .removeColumn(let id): state.removeTableColumn(id)
+        case .openLink(let id):
+            if let raw = state.block(id)?.url, let url = URL(string: raw.contains("://") ? raw : "https://" + raw) { openURL(url) }
+        case .nudge(let id, let dx, let dy): state.nudgeBlock(id, dx: dx, dy: dy)
+        case .widen(let id, let by): state.widenBlock(id, by: by)
+
+        // To-dos
+        case .todos(let show):
+            switch state.todoLayout {
+            case .column where !compact:
+                animate(motion.isOff ? nil : .easeInOut(duration: 0.25)) { todoColumnHidden = !show }
+            case .slideOver where !compact:
+                animate(motion.isOff ? nil : .easeInOut(duration: 0.25)) { state.showTodoSheet = show }
+            default:
+                if compact, phonePath.isEmpty, let id = state.current?.id { phonePath = [id] }
+                state.showTodoSheet = show
+            }
+        case .addTodo(let text): state.addTodo(text)
+        case .status(let id, let s): if let status = TodoStatus(rawValue: s) { state.setTodoStatus(id, status) }
+        case .reorderTodo(let id, let move): reorderTodo(id, move)
+        case .todoToSheet(let id, let sheetID):
+            state.moveTodo(id, toSheet: sheetID)
+            let name = state.pads.first { $0.id == sheetID }?.displayTitle ?? "the sheet"
+            state.notice = "Moved to \(name)"
+        case .deleteTodo(let id): state.deleteTodo(id)
+        case .todoSort(let m): if let mode = TodoSortMode(rawValue: m) { todoSort = mode }
+        case .doneSinks(let on): doneSinks = on
+
+        // Settings
+        case .appearance(let a): if let mode = AppearanceMode(rawValue: a) { appearance = mode }
+        case .defaultFont(let f): if let font = BlockFont(rawValue: f) { defaultFont = font }
+        case .animation(let w): if let level = WhimsyLevel(rawValue: w) { whimsy = level }
+        case .undo:
+            if state.sheetUndo != nil { state.undoSheetChange() } else { animate(motion.fall) { state.undoDelete() } }
         }
+    }
+
+    /// The sheet list: the phone's first screen, or the iPad's sidebar.
+    private func showList() {
+        phonePath = []
+        if !compact { storedColumns = .all }
+    }
+
+    /// Up, down, top or bottom of the list as it's shown. Under a sort other than Manual, the order shown is written
+    /// into the sheet first and the sort turns to Manual, as dragging a row does.
+    private func reorderTodo(_ id: String, _ move: ScratchpadCommand.TodoMove) {
+        guard let pad = state.current else { return }
+        let shown = TodoSort.sorted(pad.todos, mode: todoSort, doneSinks: doneSinks)
+        if todoSort != .manual || doneSinks {
+            state.commitTodoOrder(shown)
+            todoSort = .manual
+        }
+        let ids = shown.map(\.id)
+        guard let i = ids.firstIndex(of: id) else { return }
+        let before: String?
+        switch move {
+        case .up: before = i > 0 ? ids[i - 1] : ids.first
+        case .down: before = i + 2 < ids.count ? ids[i + 2] : nil
+        case .top: before = ids.first
+        case .bottom: before = nil
+        }
+        animate(motion.reorder) { state.moveTodo(id, before: before) }
     }
 
     /// Esc on a keyboard: one step towards the sheet list. The order is `StepBack`'s.
@@ -213,6 +349,8 @@ struct RootView: View {
                 ThemeToggle(appearance: $appearance)
                 #if os(iOS)
                 Button { state.showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
+                // ⌘K, for an iPad without a keyboard.
+                Button { CommandRoute.presentMenu() } label: { Label("Commands", systemImage: "command") }
                 #endif
                 NewSheetMenu()
             }
@@ -238,6 +376,8 @@ struct RootView: View {
                                     insertMenuItems
                                 } label: { Label("Insert", systemImage: "plus") }
                                 Menu {
+                                    CommandMenuItem()
+                                    Divider()
                                     ForEach(SheetMenus.more, id: \.self) { action in
                                         if action == .delete { Divider() }
                                         sheetAction(action)

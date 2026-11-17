@@ -12,6 +12,7 @@ enum SettingsKey {
     static let tagSort = "tagSort"
     static let stamped = "allClearStamped"
     static let sidebarColumns = "sidebarColumns"
+    static let todoColumnHidden = "todoColumnHidden"
 }
 
 /// Whimsy setting (spec section 7). System reduce-motion forces Off.

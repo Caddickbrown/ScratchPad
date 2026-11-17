@@ -150,14 +150,7 @@ struct ExportView: View {
 
     private func render(scale: CGFloat) -> PlatformPNG? {
         guard let pad = state.current else { return nil }
-        let pal = Palette.forScheme(resolvedScheme)
-        let view = SheetSnapshot(pad: pad, includeTodos: includeTodos, store: state.store)
-            .environment(\.palette, pal)
-            .environment(\.colorScheme, resolvedScheme)
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = scale
-        guard let cg = renderer.cgImage else { return nil }
-        return PlatformPNG(cgImage: cg)
+        return SheetImage.render(pad, store: state.store, scheme: resolvedScheme, includeTodos: includeTodos, scale: scale)
     }
 
     // MARK: To-dos
@@ -251,6 +244,20 @@ struct ExportView: View {
             try? await Task.sleep(nanoseconds: 1_400_000_000)
             copied = false
         }
+    }
+}
+
+/// A sheet drawn as a picture: the Export dialog's, and ⌘K's "Copy this sheet as an image" with the dialog's defaults.
+@MainActor
+enum SheetImage {
+    static func render(_ pad: Pad, store: PadStore, scheme: ColorScheme, includeTodos: Bool = true, scale: CGFloat = 2) -> PlatformPNG? {
+        let view = SheetSnapshot(pad: pad, includeTodos: includeTodos, store: store)
+            .environment(\.palette, Palette.forScheme(scheme))
+            .environment(\.colorScheme, scheme)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = scale
+        guard let cg = renderer.cgImage else { return nil }
+        return PlatformPNG(cgImage: cg)
     }
 }
 

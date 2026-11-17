@@ -11,6 +11,8 @@ struct PadView: View {
     let compact: Bool
     /// The sheet's own width, so the decision follows the window, never the device.
     @State private var width: CGFloat = 0
+    /// The column beside a wide sheet, put away from the toolbar or ⌘K.
+    @AppStorage(SettingsKey.todoColumnHidden) private var columnHidden = false
 
     /// Below this the canvas would be squeezed under ~400 pt beside the 340 pt column.
     private static let sideBySideWidth: CGFloat = 760
@@ -30,7 +32,7 @@ struct PadView: View {
                 CanvasView()
             }
             .padding(compact ? 12 : 20)
-            if !compact && !slidesTodos {
+            if !compact && !slidesTodos && !columnHidden {
                 Rectangle().fill(p.hairline).frame(width: 1)
                 TodoColumnView(compact: false).frame(width: 340)
             }
@@ -58,17 +60,22 @@ struct PadView: View {
                 .onChange(of: g.size.width) { _, w in width = w }
         })
         .toolbar {
-            if slidesTodos {
+            if !compact {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        animate(motion.isOff ? nil : .easeInOut(duration: 0.25)) { state.showTodoSheet.toggle() }
+                        animate(motion.isOff ? nil : .easeInOut(duration: 0.25)) {
+                            if slidesTodos { state.showTodoSheet.toggle() } else { columnHidden.toggle() }
+                        }
                     } label: { Label("To-do", systemImage: "checklist") }
                     .help("Show or hide the to-do column")
                 }
             }
         }
+        .onChange(of: layout, initial: true) { _, l in state.todoLayout = l }
         .navigationTitle(compact ? compactTitle : "")
     }
+
+    private var layout: ScratchpadCommandState.TodoLayout { compact ? .sheet : slidesTodos ? .slideOver : .column }
 
     private var compactTitle: String {
         guard let pad = state.current else { return "" }

@@ -126,6 +126,13 @@ struct RailView: View {
                     Image(systemName: "gearshape").font(.system(size: 19, weight: .regular))
                 }
                 .accessibilityLabel("Settings")
+                #if os(iOS)
+                // ⌘K without a keyboard.
+                Button { CommandRoute.presentMenu() } label: {
+                    Image(systemName: "command").font(.system(size: 18, weight: .regular))
+                }
+                .accessibilityLabel("Commands")
+                #endif
                 NewSheetMenu(showsSheetActions: false)
                     .labelStyle(.iconOnly)
                     .font(.system(size: 21, weight: .regular))

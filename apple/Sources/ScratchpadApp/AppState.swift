@@ -10,6 +10,17 @@ struct DeletedBlock: Equatable {
     var token = UUID()
 }
 
+/// The open sheet as it was before a change made from ⌘K that took something away (a tag, a to-do, a table's
+/// row), for the undo toast.
+struct SheetUndo: Equatable {
+    var before: Pad
+    /// What was done, for the toast: "#work removed".
+    var done: String
+    /// What Undo puts back, for the menu: "#work comes back".
+    var said: String
+    var token = UUID()
+}
+
 /// A caret (or selection) in one text field, as character offsets into its text. `field` names
 /// the field: a text or code block's id, or one of the keys below.
 struct Caret: Equatable {
@@ -63,6 +74,10 @@ final class AppState: ObservableObject {
 
     // Blocks and to-dos
     @Published var deleted: DeletedBlock?
+    /// A change made from ⌘K that can be taken back from its toast or the menu's Undo.
+    @Published var sheetUndo: SheetUndo?
+    /// Where this screen puts the to-dos, as the sheet last laid itself out. Not published: ⌘K reads it as it opens.
+    var todoLayout: ScratchpadCommandState.TodoLayout = .sheet
     @Published var justInserted: Set<String> = []
     @Published var blankTodoID = UUID().uuidString
     /// Sheet whose carried rows should hop in once.
@@ -336,6 +351,13 @@ final class AppState: ObservableObject {
 
     func removeTag(_ t: String) { current?.tags.removeAll { $0 == t } }
 
+    /// From ⌘K, with Undo.
+    func removeTagUndoably(_ t: String) {
+        guard current?.tags.contains(t) == true else { return }
+        keepForUndo("#\(t) removed", undo: "#\(t) comes back")
+        removeTag(t)
+    }
+
     func tagSuggestions(_ prefix: String) -> [(tag: String, count: Int)] {
         Tags.suggestions(prefix: prefix, pads: pads, excluding: current?.tags ?? [])
     }
@@ -400,9 +422,115 @@ final class AppState: ObservableObject {
         } catch { self.error = error.localizedDescription }
     }
 
+    /// A to-do typed into the menu goes at the end of the list.
+    func addTodo(_ text: String) {
+        guard current != nil else { return }
+        current?.todos.append(Todo(id: UUID().uuidString, text: text))
+    }
+
+    func setTodoStatus(_ id: String, _ status: TodoStatus) {
+        guard let i = current?.todos.firstIndex(where: { $0.id == id }) else { return }
+        current?.todos[i].status = status
+    }
+
+    func deleteTodo(_ id: String) {
+        guard let todo = current?.todos.first(where: { $0.id == id }) else { return }
+        keepForUndo("To-do deleted", undo: "“\(todo.text)” comes back")
+        current?.todos.removeAll { $0.id == id }
+    }
+
+    // MARK: Undo from ⌘K
+
+    /// Keeps the open sheet as it is now, so the change about to be made can be undone for 8 s.
+    func keepForUndo(_ done: String, undo said: String) {
+        guard let pad = current else { return }
+        let undo = SheetUndo(before: pad, done: done, said: said)
+        sheetUndo = undo
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            if self?.sheetUndo?.token == undo.token { self?.sheetUndo = nil }
+        }
+    }
+
+    /// Puts the sheet back as it was, if it's still the one open.
+    func undoSheetChange() {
+        guard let undo = sheetUndo else { return }
+        sheetUndo = nil
+        guard current?.id == undo.before.id else { return }
+        current = undo.before
+    }
+
+    // MARK: Tables
+
+    func addTableRow(_ id: String) {
+        mutate(id) { b in
+            let cols = max(1, b.rows?.first?.count ?? 1)
+            b.rows = (b.rows ?? []) + [Array(repeating: "", count: cols)]
+        }
+    }
+
+    func addTableColumn(_ id: String) {
+        mutate(id) { b in
+            let rows = b.rows ?? [[""]]
+            let n = rows.map(\.count).max() ?? 1
+            let w = Array(TableLayout.widths(for: b).prefix(n)) + [120]
+            b.rows = rows.map { $0 + Array(repeating: "", count: max(0, n - $0.count)) + [""] }
+            b.colWidths = w
+            b.w = w.reduce(0, +)
+        }
+    }
+
+    func removeTableRow(_ id: String) {
+        guard let rows = block(id)?.rows, rows.count > 1 else { return }
+        keepForUndo("Row removed", undo: "The table's last row comes back")
+        mutate(id) { $0.rows = Array(rows.dropLast()) }
+    }
+
+    func removeTableColumn(_ id: String) {
+        guard let b = block(id), let rows = b.rows, let n = rows.map(\.count).max(), n > 1 else { return }
+        keepForUndo("Column removed", undo: "The table's last column comes back")
+        mutate(id) { b in
+            let w = Array(TableLayout.widths(for: b).prefix(n - 1))
+            b.rows = rows.map { Array($0.prefix(n - 1)) }
+            b.colWidths = w
+            b.w = max(Block.minWidth, w.reduce(0, +))
+        }
+    }
+
     // MARK: Blocks
 
     func block(_ id: String) -> Block? { current?.blocks.first { $0.id == id } }
+
+    /// A step across the grid, from ⌘K, with the phone's window following.
+    func nudgeBlock(_ id: String, dx: Int, dy: Int) {
+        mutate(id) { b in
+            b.x = max(0, b.x + dx)
+            b.y = max(0, b.y + dy)
+        }
+        if let b = block(id) { reveal = CGPoint(x: b.x, y: b.y) }
+    }
+
+    /// Wider or narrower from ⌘K. A table's columns share the change.
+    func widenBlock(_ id: String, by d: Int) {
+        mutate(id) { b in
+            let w = max(Block.minWidth, b.w + d)
+            if b.kind == .table {
+                let widths = TableLayout.widths(for: b)
+                let total = max(1, widths.reduce(0, +))
+                b.colWidths = widths.map { max(TableLayout.minColumn, Int((Double($0) * Double(w) / Double(total)).rounded())) }
+                b.w = b.colWidths!.reduce(0, +)
+            } else {
+                b.w = w
+            }
+        }
+    }
+
+    /// Selected from ⌘K: the phone's window goes to it.
+    func selectBlock(_ id: String) {
+        guard let b = block(id) else { return }
+        selectedBlockID = id
+        reveal = CGPoint(x: b.x, y: b.y)
+    }
 
     func update(_ block: Block) {
         guard let i = current?.blocks.firstIndex(where: { $0.id == block.id }) else { return }

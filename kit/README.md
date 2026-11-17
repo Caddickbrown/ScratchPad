@@ -17,10 +17,11 @@ servers in any language. `kit/MANIFEST` records a hash of every file, and
 | `specs/WORDS.md` | Errors, empty states, relative dates, timestamps, the server connection block |
 | `specs/MOTION.md` | Reduce Motion on every platform |
 | `specs/KEYS.md`, `specs/keymap.json` | The shared keyboard map |
+| `specs/PALETTE.md` | The command palette: commands, steps, previews, recents, the host, and the move from 0.5 |
 | `tools/build_tokens.py` | Generates CSS and Swift palettes from `design/tokens.json`; `--check` for CI |
 | `tools/kit_check.py` | Outside font hosts, missing Reduce Motion handling; warns on text sizes that don't scale |
 | `tools/sync_kit.py` | Copies the kit into an app; `--check` for drift; `--manifest` after changing the kit |
-| `swift/` | `Color(hex:)`, `Color(light:dark:)`, `Contrast`, `Font.scaled`, `KitMotion`, `RelativeDate`, `SyncStatus`, `CommandPalette` (the ⌘K menu's rules and keys; the app draws the panel), `KitFieldEscape` (Esc and ⌘. on every field and the window; the app says what a press does) |
+| `swift/` | `Color(hex:)`, `Color(light:dark:)`, `Contrast`, `Font.scaled`, `KitMotion`, `RelativeDate`, `SyncStatus`, `CommandPalette` (the ⌘K menu's rules, keys, steps, previews and recents, and its host; the app draws the panel; see `specs/PALETTE.md`), `KitFieldEscape` (Esc and ⌘. on every field and the window; the app says what a press does) |
 | `js/` | `relativeDate`, `statusLine` (ES modules, no dependencies) |
 | `vectors/` | Shared test cases the Swift and JS halves must both pass |
 | `ci/kit.yml` | The standard GitHub Actions workflow running the three checks |
