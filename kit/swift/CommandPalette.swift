@@ -25,7 +25,7 @@ import UIKit
 //     (a composer's Send) runs over the sheet instead, leaving it open (0.6.1).
 //   - With nothing typed: recent commands, then what applies to the selected item, then the rest. No cap: it scrolls.
 //   - Typing is fuzzy, in any word order, and finds a row by its synonyms as well as its title. Punctuation between
-//     words (":", "›", "·", "—") counts as a space, so "theme: dark" finds "Theme: Dark".
+//     words (":", "›", "·", "—") counts as a space, so "theme: dark" finds "Theme: Dark". "…" doesn't: it means a step.
 //   - A follow-up choice ("Theme…", "Move to…") or a typed answer ("Rename…") happens in the menu, not in a sheet.
 //   - A highlighted row can preview what it does (a theme), and Esc puts back what was there.
 //
@@ -35,8 +35,9 @@ import UIKit
 /// Fuzzy matching: the letters of each word typed, in order, somewhere in the text. The words can come in any order.
 enum CommandMatch {
     /// Punctuation that sits between words in titles ("Theme: Sepia", "Move to › Home", "Status · Review"): a space,
-    /// in the typing and in the texts alike, so "theme: sepia" finds the row the way it's drawn.
-    static let separators: Set<Character> = [":", ";", ",", "›", "‹", "»", "«", "·", "•", "—", "–", "…", "|", "→"]
+    /// in the typing and in the texts alike, so "theme: sepia" finds the row the way it's drawn. Not "…": it marks a
+    /// step, so "tag…" means the step "Tag…" and is matched as typed.
+    static let separators: Set<Character> = [":", ";", ",", "›", "‹", "»", "«", "·", "•", "—", "–", "|", "→"]
 
     /// Lower case, without accents, so "cafe" finds "Café", and with `separators` as spaces.
     static func fold(_ text: String) -> [Character] {

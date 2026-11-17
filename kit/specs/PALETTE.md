@@ -30,7 +30,7 @@ CommandRow("item.delete", "Delete", symbol: "trash", step: .run(.delete(id)),
 ```
 
 - **Synonyms.** Typing matches `search` (the title by default) and each synonym. Words can come in any order and be spread across the title and synonyms: "sepia theme" finds "Theme: Sepia", "vertical" finds Shorts. Accents and case don't matter.
-- **Punctuation between words.** `:` `;` `,` `›` `‹` `»` `«` `·` `•` `—` `–` `…` `|` `→` count as spaces, in the typing and in titles and synonyms (`CommandMatch.separators`), so "theme: sepia" and "Status: Review" find the rows titled that way. A full stop, a hyphen and a slash are still letters to match.
+- **Punctuation between words.** `:` `;` `,` `›` `‹` `»` `«` `·` `•` `—` `–` `|` `→` count as spaces, in the typing and in titles and synonyms (`CommandMatch.separators`), so "theme: sepia" and "Status: Review" find the rows titled that way. A full stop, a hyphen, a slash and `…` are still matched as typed: `…` marks a step, so "tag…" is the step "Tag…" rather than any row with "tag" in it.
 - **Over a sheet.** Chosen while a sheet is up, a row first leaves the sheet the way Esc does and runs once it has gone. A row that belongs to the sheet (a composer's Send, Attach, Save draft; an editor's actions) says `keepsSheet: true`, and runs at once with the sheet left open. On a pick or a question it covers the choices and the typed answer; on `CommandRow.toggle` it's a parameter too. The palette says so as `menu.keepsSheet` (and `menu.chosen`) after a `.run`, and `CommandGate.step(sheetUp:waited:keepsSheet:)` is the rule. List such rows only while their sheet is up, since the action needs it.
 - **Toggles.** `CommandRow.toggle(id, isOn:, turnOn:, turnOff:, states:, symbol:, action:)` makes a row whose title says what choosing it does ("Pause monitor" while showing, "Resume monitor" while paused), with `isOn` and `state` ("Paused") for drawing. Either title finds it.
 - **Destructive.** `destructive: true` is drawn red, and needs `confirms` or `undoable`. Destructive rows never go into Recents, so ⌘K then Return can't delete.
@@ -91,7 +91,7 @@ CommandResponders.install()
 
 ## Moving from 0.6.0
 
-Nothing to change: 0.6.1 adds to 0.6.0.
+Nothing to change: 0.6.1 and 0.6.2 add to 0.6.0. 0.6.2 only puts `…` back to being matched as typed (0.6.1 treated it as a space, so "tag…" could light a row other than "Tag…").
 
 1. **Colons and the like match.** "theme: dark" finds "Theme: Dark" (it found nothing before). A test that typed a colon to show nothing matches should type letters that aren't there instead.
 2. **`keepsSheet`.** If the app closed a sheet before running a row by hand, or kept a sheet's actions off the menu because the host would close the sheet, mark those rows `keepsSheet: true` and take the workaround out: the host now runs them over the sheet, and gives the keyboard back to the field that had it. Rows that leave the sheet are unchanged, and `host.leaveSheet` is still what closes it for them.
