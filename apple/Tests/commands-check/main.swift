@@ -157,6 +157,10 @@ pal.type("defer")
 check(pal.rows.isEmpty || pal.rows.first?.id != "todo.defer", "and isn't offered deferring again")
 check(row("todo.sinks", s)?.title == "Keep done to-dos in place" && row("todo.sinks", s)?.step == .run(.doneSinks(false)), "done sinks says which way it goes")
 check(answer("todosort", "overdue", s) == .todoSort("overdueFirst"), "sort the to-dos")
+check(row("daily", s)?.title == "Make a new sheet each day" && row("daily", s)?.step == .run(.newSheetEachDay(true)),
+      "a new sheet each day is off unless chosen, and the row says it turns it on")
+check(row("daily", onSheet { $0.newSheetEachDay = true })?.step == .run(.newSheetEachDay(false)), "and turns it off again")
+check(first("new", s) == .newSheet, "New makes a sheet")
 
 // The one being typed in comes first, under its name.
 let typing = onSheet { $0.todo = todos[0] }

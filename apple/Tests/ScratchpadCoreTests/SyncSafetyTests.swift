@@ -243,6 +243,33 @@ final class SyncSafetyTests: XCTestCase {
         XCTAssertEqual(Resume.step(current: nil, onDisk: nil, lastToday: "2026-01-02", today: "2026-01-02"), .openToday)
     }
 
+    // "New sheet each day" off, the default since 17 Nov: the app opens the sheet you had, and only New makes one.
+
+    func testWithoutADailySheetANewDayLeavesYesterdaysSheetOpen() {
+        let here = sheet("2026-01-02")
+        XCTAssertEqual(Resume.step(current: here, onDisk: here, lastToday: "2026-01-02", today: "2026-01-03", newSheetEachDay: false),
+                       .nothing)
+    }
+
+    func testWithoutADailySheetANewDayStillPicksUpAnotherDevicesSave() {
+        let theirs = sheet("2026-01-02", updated: 60)
+        XCTAssertEqual(Resume.step(current: sheet("2026-01-02"), onDisk: theirs, lastToday: "2026-01-02", today: "2026-01-03",
+                                   newSheetEachDay: false), .load(theirs))
+    }
+
+    func testWithoutADailySheetNoSheetOpensTheLatest() {
+        XCTAssertEqual(Resume.step(current: nil, onDisk: nil, lastToday: "2026-01-02", today: "2026-01-02", newSheetEachDay: false),
+                       .openLatest)
+    }
+
+    func testTheLatestSheetIsTheOneLastChanged() {
+        let old = Pad(id: "a", date: "2026-01-03", createdAt: now, updatedAt: now)
+        let edited = Pad(id: "b", date: "2025-12-01", createdAt: now, updatedAt: now.addingTimeInterval(90))
+        let pinned = Pad(id: "c", date: nil, createdAt: now, updatedAt: now.addingTimeInterval(30))
+        XCTAssertEqual(Resume.latest(among: [old, edited, pinned])?.id, "b")
+        XCTAssertNil(Resume.latest(among: []))
+    }
+
     // MARK: Dates other writers leave
 
     func testReadsAnyFractionalDigitsTheLinuxAppMayHaveWritten() throws {

@@ -80,6 +80,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.appearance) private var appearance: AppearanceMode = .system
     @AppStorage(SettingsKey.whimsy) private var whimsy: WhimsyLevel = .full
     @AppStorage(SettingsKey.defaultFont) private var defaultFont: BlockFont = .sans
+    @AppStorage(SettingsKey.newSheetEachDay) private var newSheetEachDay = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let showsDone: Bool
 
@@ -102,6 +103,14 @@ struct SettingsView: View {
             } footer: {
                 Text(reduceMotion ? "Reduce Motion is on in system settings, so animations are off."
                                   : "How much sheets peel and blocks fall into place.")
+            }
+            Section {
+                Toggle("New sheet each day", isOn: $newSheetEachDay)
+            } header: {
+                Text("Sheets")
+            } footer: {
+                Text(newSheetEachDay ? "Each morning opens a fresh sheet dated today, with yesterday's open to-dos carried over."
+                                     : "The app opens the sheet you had. Make another with New (⌘N).")
             }
             Section {
                 LabeledContent("Kept on") { Text(StoreWords.place(usingICloud: state.usingICloud)) }

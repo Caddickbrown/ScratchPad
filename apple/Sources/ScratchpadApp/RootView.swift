@@ -264,6 +264,9 @@ struct RootView: View {
         case .appearance(let a): if let mode = AppearanceMode(rawValue: a) { appearance = mode }
         case .defaultFont(let f): if let font = BlockFont(rawValue: f) { defaultFont = font }
         case .animation(let w): if let level = WhimsyLevel(rawValue: w) { whimsy = level }
+        case .newSheetEachDay(let on):
+            UserDefaults.standard.set(on, forKey: SettingsKey.newSheetEachDay)
+            state.notice = on ? "A new sheet each day" : "New sheets only when you choose New"
         case .undo:
             if state.sheetUndo != nil { state.undoSheetChange() } else { animate(motion.fall) { state.undoDelete() } }
         }

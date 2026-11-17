@@ -13,6 +13,8 @@ enum SettingsKey {
     static let stamped = "allClearStamped"
     static let sidebarColumns = "sidebarColumns"
     static let todoColumnHidden = "todoColumnHidden"
+    /// Off by default (Dan, 17 Nov): the app opens the sheet you had, and New makes another.
+    static let newSheetEachDay = "newSheetEachDay"
 }
 
 /// Whimsy setting (spec section 7). System reduce-motion forces Off.

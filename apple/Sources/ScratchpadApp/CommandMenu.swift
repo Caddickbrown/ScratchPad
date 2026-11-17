@@ -113,6 +113,7 @@ enum ScratchpadCommandMenu {
         out.dark = model.colorScheme == .dark
         out.defaultFont = d.string(forKey: SettingsKey.defaultFont) ?? BlockFont.sans.rawValue
         out.animation = d.string(forKey: SettingsKey.whimsy) ?? WhimsyLevel.full.rawValue
+        out.newSheetEachDay = d.bool(forKey: SettingsKey.newSheetEachDay)
         out.reduceMotion = UIAccessibility.isReduceMotionEnabled
         out.tags = Tags.counts(state.pads).map(\.tag)
         return out

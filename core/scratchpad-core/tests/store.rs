@@ -2,7 +2,7 @@
 use scratchpad_core::archive::Archive;
 use scratchpad_core::dates::Date;
 use scratchpad_core::model::*;
-use scratchpad_core::rollover::{resume_step, ResumeStep};
+use scratchpad_core::rollover::{resume_step, resume_step_with, ResumeStep};
 use scratchpad_core::store::{PadStore, StoreError};
 use scratchpad_core::vault::{EntryState, FsVault, Vault, VaultEntry, VaultError};
 use std::collections::BTreeMap;
@@ -250,6 +250,17 @@ fn coming_back() {
     assert_eq!(resume_step(Some(&here), Some(&here), "2026-01-02", "2026-01-03"), ResumeStep::OpenToday);
     assert_eq!(resume_step(Some(&here), Some(&here), "2026-02-02", "2026-02-03"), ResumeStep::Nothing);
     assert_eq!(resume_step(None, None, "2026-01-02", "2026-01-02"), ResumeStep::OpenToday);
+}
+
+/// "New sheet each day" off (the default since 17 Nov): a new day leaves the sheet open, and no sheet opens the latest.
+#[test]
+fn coming_back_without_a_daily_sheet() {
+    let here = sheet("s", "", NOW);
+    let newer = sheet("s", "", NOW.plus_days(1));
+    assert_eq!(resume_step_with(Some(&here), Some(&here), "2026-01-02", "2026-01-03", false), ResumeStep::Nothing);
+    assert_eq!(resume_step_with(Some(&here), Some(&newer), "2026-01-02", "2026-01-03", false), ResumeStep::Load(newer.clone()));
+    assert_eq!(resume_step_with(None, None, "2026-01-02", "2026-01-02", false), ResumeStep::OpenLatest);
+    assert_eq!(resume_step_with(Some(&here), Some(&here), "2026-01-02", "2026-01-03", true), ResumeStep::OpenToday);
 }
 
 /// Differences from Swift that stay, each out of reach of any real sheet. Pinned here so a change shows.

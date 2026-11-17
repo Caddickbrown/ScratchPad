@@ -29,13 +29,24 @@ pub enum ResumeStep {
     /// Another device saved this sheet since it was opened.
     Load(Pad),
     OpenToday,
+    /// No sheet is open and the app doesn't make one each day: open the one last changed.
+    OpenLatest,
 }
 
 /// A new day moves on from the sheet that was today's, and leaves any other sheet where it is.
 /// A sheet that's newer on disk replaces the copy in memory, which would otherwise overwrite it.
 pub fn resume_step(current: Option<&Pad>, on_disk: Option<&Pad>, last_today: &str, today: &str) -> ResumeStep {
-    let Some(current) = current else { return ResumeStep::OpenToday };
-    if last_today != today && current.date.as_deref() == Some(last_today) { return ResumeStep::OpenToday; }
+    resume_step_with(current, on_disk, last_today, today, true)
+}
+
+/// `resume_step`, with the "New sheet each day" setting. Off (the default since 17 Nov), a new day leaves the
+/// open sheet where it is, and with none open the one last changed opens: only New makes a sheet.
+pub fn resume_step_with(current: Option<&Pad>, on_disk: Option<&Pad>, last_today: &str, today: &str,
+                        new_sheet_each_day: bool) -> ResumeStep {
+    let Some(current) = current else {
+        return if new_sheet_each_day { ResumeStep::OpenToday } else { ResumeStep::OpenLatest };
+    };
+    if new_sheet_each_day && last_today != today && current.date.as_deref() == Some(last_today) { return ResumeStep::OpenToday; }
     match on_disk {
         Some(p) if p.updated_at > current.updated_at => ResumeStep::Load(p.clone()),
         _ => ResumeStep::Nothing,

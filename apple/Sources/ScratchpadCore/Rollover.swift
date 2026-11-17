@@ -39,15 +39,24 @@ public enum Resume {
         /// Another device saved this sheet since it was opened.
         case load(Pad)
         case openToday
+        /// No sheet is open and the app doesn't make one each day: open the one last changed.
+        case openLatest
     }
 
     /// A new day moves on from the sheet that was today's, and leaves any other sheet where it is.
     /// A sheet that's newer on disk replaces the copy in memory, which would otherwise overwrite it
-    /// at the next keystroke.
-    public static func step(current: Pad?, onDisk: Pad?, lastToday: String, today: String) -> Step {
-        guard let current else { return .openToday }
-        if lastToday != today, current.date == lastToday { return .openToday }
+    /// at the next keystroke. With `newSheetEachDay` off (the default since 17 Nov) a new day leaves the
+    /// open sheet where it is, and with none open the one last changed opens: only New makes a sheet.
+    public static func step(current: Pad?, onDisk: Pad?, lastToday: String, today: String,
+                            newSheetEachDay: Bool = true) -> Step {
+        guard let current else { return newSheetEachDay ? .openToday : .openLatest }
+        if newSheetEachDay, lastToday != today, current.date == lastToday { return .openToday }
         if let onDisk, onDisk.updatedAt > current.updatedAt { return .load(onDisk) }
         return .nothing
+    }
+
+    /// The sheet last changed, pinned or dated: where the app opens when it doesn't make one each day.
+    public static func latest(among pads: [Pad]) -> Pad? {
+        pads.max { ($0.updatedAt, $1.id) < ($1.updatedAt, $0.id) }
     }
 }

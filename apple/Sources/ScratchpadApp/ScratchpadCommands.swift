@@ -34,7 +34,7 @@ enum ScratchpadCommand: Equatable {
     case todos(Bool), addTodo(String), status(String, String), reorderTodo(String, TodoMove)
     case todoToSheet(String, String), deleteTodo(String), todoSort(String), doneSinks(Bool)
     // Settings
-    case appearance(String), defaultFont(String), animation(String)
+    case appearance(String), defaultFont(String), animation(String), newSheetEachDay(Bool)
     case undo
 }
 
@@ -105,6 +105,8 @@ struct ScratchpadCommandState: Equatable {
     var dark = false
     var defaultFont = "sans"
     var animation = "full"
+    /// Today opens a fresh sheet each morning. Off by default: only New makes one.
+    var newSheetEachDay = false
     var reduceMotion = false
     /// Every tag in use, most used first.
     var tags: [String] = []
@@ -538,6 +540,10 @@ struct ScratchpadCommandList: CommandList {
                                                                     : Self.label(state.animation, State.animations.map { ($0.0, $0.1) }),
                 symbol: "sparkles", step: .pick(CommandPick(prompt: "How much movement?", choices: motions)),
                 synonyms: ["motion", "whimsy", "effects", "reduce motion"]),
+            Row.toggle("daily", isOn: state.newSheetEachDay, turnOn: "Make a new sheet each day",
+                       turnOff: "Stop making a new sheet each day", states: ("New sheet each day", "Only when you choose New"),
+                       symbol: "sun.max", action: .newSheetEachDay(!state.newSheetEachDay),
+                       synonyms: ["daily sheet", "new day", "today's sheet", "every day"]),
             Row("settings", "Settings", detail: "Where your sheets are kept", symbol: "gearshape", step: .run(.settings),
                 synonyms: ["preferences", "options", "icloud", "store"]),
         ]

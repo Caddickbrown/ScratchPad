@@ -172,7 +172,8 @@ final class AppState: ObservableObject {
         let onDisk = current.flatMap { try? store.load($0.id) }
         var here = current
         if let lastWrite, lastWrite.id == here?.id, lastWrite.at > here!.updatedAt { here?.updatedAt = lastWrite.at }
-        let step = Resume.step(current: here, onDisk: onDisk, lastToday: lastToday, today: today)
+        let step = Resume.step(current: here, onDisk: onDisk, lastToday: lastToday, today: today,
+                               newSheetEachDay: Self.newSheetEachDay)
         lastToday = today
         refreshList()
         switch step {
@@ -183,6 +184,7 @@ final class AppState: ObservableObject {
             saveTask?.cancel()
             dirty = false
         case .openToday: openToday()
+        case .openLatest: openStart()
         }
     }
 
@@ -206,7 +208,7 @@ final class AppState: ObservableObject {
             let scan = try store.scan()
             pads = scan.pads
             note(scan)
-            if current == nil && !resolvingStore { openToday() }
+            if current == nil && !resolvingStore { openStart() }
         } catch { self.error = error.localizedDescription }
     }
 
@@ -241,7 +243,21 @@ final class AppState: ObservableObject {
 
     // MARK: Sheets
 
-    /// Today on launch: the most recently updated sheet dated today, or a new one with carry-over.
+    /// Settings' "New sheet each day", off by default (Dan, 17 Nov).
+    static var newSheetEachDay: Bool { UserDefaults.standard.bool(forKey: SettingsKey.newSheetEachDay) }
+
+    /// Where the app opens: today's sheet when it makes one each day; otherwise the sheet last changed,
+    /// and a first sheet only when there are none (and none still downloading) to write in.
+    func openStart() {
+        if Self.newSheetEachDay { openToday(); return }
+        if let latest = Resume.latest(among: pads), let pad = try? store.load(latest.id) {
+            current = pad
+            return
+        }
+        openToday()
+    }
+
+    /// Today: the most recently updated sheet dated today, or a new one with carry-over.
     func openToday() {
         do {
             let hadToday = pads.contains { $0.date == todayKey }
@@ -315,7 +331,7 @@ final class AppState: ObservableObject {
             if wasOpen {
                 selectedBlockID = nil
                 closeHeaderPopover()
-                if let next = pads.first.flatMap({ try? store.load($0.id) }) { current = next } else { current = nil; openToday() }
+                if let next = pads.first.flatMap({ try? store.load($0.id) }) { current = next } else { current = nil; openStart() }
             }
             notice = "Sheet deleted"
         } catch { self.error = error.localizedDescription }
