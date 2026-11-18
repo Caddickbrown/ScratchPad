@@ -226,8 +226,7 @@ struct SheetRow: View {
         .overlay { if targeted { RoundedRectangle(cornerRadius: 4).stroke(p.accent, lineWidth: 1.5).padding(-3) } }
         .dropDestination(for: String.self) { items, _ in
             guard let id = items.compactMap(TodoDrag.id).first else { return false }
-            state.moveTodo(id, toSheet: pad.id)
-            return true
+            return state.moveTodo(id, toSheet: pad.id)
         } isTargeted: { targeted = $0 }
         .contextMenu {
             Button("Open") { state.open(pad.id) }

@@ -254,9 +254,9 @@ struct RootView: View {
         case .status(let id, let s): if let status = TodoStatus(rawValue: s) { state.setTodoStatus(id, status) }
         case .reorderTodo(let id, let move): reorderTodo(id, move)
         case .todoToSheet(let id, let sheetID):
-            state.moveTodo(id, toSheet: sheetID)
             let name = state.pads.first { $0.id == sheetID }?.displayTitle ?? "the sheet"
-            state.notice = "Moved to \(name)"
+            if state.moveTodo(id, toSheet: sheetID) { state.notice = "Moved to \(name)" }
+            else if state.error == nil { state.notice = "Couldn’t move it to \(name)" }
         case .deleteTodo(let id): state.deleteTodo(id)
         case .todoSort(let m): if let mode = TodoSortMode(rawValue: m) { todoSort = mode }
         case .doneSinks(let on): doneSinks = on

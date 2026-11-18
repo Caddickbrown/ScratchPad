@@ -450,9 +450,11 @@ final class AppState: ObservableObject {
     }
 
     /// Drop on a sheet row in the sidebar: the to-do moves to that sheet.
-    func moveTodo(_ id: String, toSheet sheetID: String) {
+    /// Returns whether it moved (not when it's already there, gone, or the other sheet can't be read or written).
+    @discardableResult
+    func moveTodo(_ id: String, toSheet sheetID: String) -> Bool {
         guard var pad = current, sheetID != pad.id, let todo = pad.todos.first(where: { $0.id == id }),
-              var target = try? store.load(sheetID) else { return }
+              var target = try? store.load(sheetID) else { return false }
         target.todos.append(todo)
         pad.todos.removeAll { $0.id == id }
         do {
@@ -460,7 +462,8 @@ final class AppState: ObservableObject {
             current = pad
             flush()
             refreshList()
-        } catch { self.error = error.localizedDescription }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
     }
 
     /// A to-do typed into the menu goes at the end of the list.
@@ -702,7 +705,13 @@ final class AppState: ObservableObject {
             let archive = try ScratchpadArchive.decode(Data(contentsOf: url))
             let result = try archive.importInto(store)
             refreshList()
-            if let id = current?.id, let fresh = try store.load(id) { current = fresh }
+            // The open sheet as the import left it on disk: not an edit, so it keeps its own edited time.
+            if let id = current?.id, let fresh = try store.load(id) {
+                current = fresh
+                base = fresh
+                saveTask?.cancel()
+                dirty = false
+            }
             notice = "Imported \(result.sheets) sheet\(result.sheets == 1 ? "" : "s")"
                 + (result.assetsWritten > 0 ? " and \(result.assetsWritten) file\(result.assetsWritten == 1 ? "" : "s")" : "")
                 + (result.keptNewer > 0 ? ". Kept \(result.keptNewer) newer sheet\(result.keptNewer == 1 ? "" : "s") already here" : "")
