@@ -10,22 +10,37 @@ use std::process::{Command, Stdio};
 
 const NOW: Date = Date(1_794_000_000_000);
 
-/// The `hammer` example, built here when missing: `cargo test` doesn't always leave
-/// target/<profile>/examples/hammer in place (on a fresh target it isn't built at all, which is how
-/// the Linux CI failed on 18 Nov once npm test passed again).
+/// The `hammer` example. Cargo is asked where it is (building it if needed): `cargo test` doesn't
+/// always leave target/<profile>/examples/hammer in place, and when the example is already fresh
+/// (a restored CI cache) a plain build may not put that copy back either. The Linux CI failed on
+/// both counts on 18 Nov once npm test passed again.
 fn hammer() -> PathBuf {
     let test = std::env::current_exe().unwrap();
-    let path = test.parent().unwrap().parent().unwrap().join("examples/hammer");
-    if !path.exists() {
-        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
-        let mut build = Command::new(cargo);
-        build.args(["build", "-p", "scratchpad-core", "--example", "hammer"]).current_dir(env!("CARGO_MANIFEST_DIR"));
-        if path.parent().and_then(Path::parent).and_then(Path::file_name).map_or(false, |p| p == "release") {
-            build.arg("--release");
-        }
-        assert!(build.status().unwrap().success(), "couldn't build the hammer example");
+    let profile_dir = test.parent().unwrap().parent().unwrap().to_path_buf();
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let mut build = Command::new(cargo);
+    build
+        .args(["build", "-p", "scratchpad-core", "--example", "hammer", "--message-format=json"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .stderr(Stdio::inherit());
+    if profile_dir.file_name().map_or(false, |p| p == "release") {
+        build.arg("--release");
     }
-    path
+    let out = build.output().unwrap();
+    assert!(out.status.success(), "couldn't build the hammer example");
+    let text = String::from_utf8_lossy(&out.stdout);
+    for line in text.lines().filter(|l| l.contains("\"name\":\"hammer\"")) {
+        let key = "\"executable\":\"";
+        if let Some(start) = line.find(key) {
+            let rest = &line[start + key.len()..];
+            if let Some(end) = rest.find('"') {
+                return PathBuf::from(&rest[..end]);
+            }
+        }
+    }
+    let fallback = profile_dir.join("examples/hammer");
+    assert!(fallback.exists(), "cargo didn't say where the hammer example is");
+    fallback
 }
 
 #[test]
