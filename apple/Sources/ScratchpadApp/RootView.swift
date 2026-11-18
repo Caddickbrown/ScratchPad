@@ -380,8 +380,11 @@ struct RootView: View {
                                     insertMenuItems
                                 } label: { Label("Insert", systemImage: "plus") }
                                 Menu {
+                                    // The kit's ⌘K menu is iOS-only; the Mac has ⌘K in the menu bar.
+                                    #if os(iOS)
                                     CommandMenuItem()
                                     Divider()
+                                    #endif
                                     ForEach(SheetMenus.more, id: \.self) { action in
                                         if action == .delete { Divider() }
                                         sheetAction(action)
