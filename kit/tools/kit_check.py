@@ -14,6 +14,13 @@ Rules (kit/specs/ explains each):
                       since a fixed size is sometimes right (a canvas, a wall display).
                       `.custom(name, size:)` is fine: it scales with body text, and
                       relativeTo: ties it to a closer style.
+    monitor-hidden    a palette command is left off the list on the monitor (`!onMonitor`,
+                      `display != .monitor` and the like) — a warning. On the monitor every
+                      phone action has to be doable from ⌘K: rebuild it in the palette (a
+                      pick, typed or confirm step), mark it `onPhone:` if it truly needs the
+                      phone, or say where its monitor version is with a comment on the line
+                      or just above: `// monitor-alt: "Browse a category…" pick`.
+                      specs/PALETTE.md, "Nothing hidden on the monitor".
 
 Paths to skip go in an optional kit.config.json at the repo root:
     {"exclude": ["sketches/", "docs/prototypes/"]}
@@ -34,6 +41,17 @@ CSS_REDUCED = re.compile(r"prefers-reduced-motion")
 SWIFT_MOTION = re.compile(r"withAnimation\s*\(|\.animation\s*\(|\.transition\s*\(")
 SWIFT_REDUCED = re.compile(r"accessibilityReduceMotion|KitMotion")
 SYSTEM_SIZE = re.compile(r"\.system\(size:")
+MONITOR_FLAG = r"(?:[\w.]+\.)?(?:onMonitor|isMonitor|monitorShows|onTheMonitor|monitorIsUp|showsMonitor|monitor)\b(?![.(])"
+MONITOR_HIDDEN = re.compile(
+    r"!\s*\(?\s*" + MONITOR_FLAG
+    + r"|\b(?:onMonitor|isMonitor)\s*==\s*false"
+    + r"|\b(?:display|surface|screen)\s*!=\s*\.monitor\b"
+    + r"|\b(?:display|surface)\s*==\s*\.phone\b"
+    + r"|\bif\s+" + MONITOR_FLAG + r"\s*\{\s*return\s*\[\s*\]"
+    + r"|\b(?:onMonitor|isMonitor)\s*\?\s*\[\s*\]")
+# A file that builds palette rows: it lists a CommandList or makes rows.
+BUILDS_ROWS = re.compile(r":\s*CommandList\b|\bCommandRow(?:<[^>]*>)?\s*\(|\bRow(?:\.toggle)?\(")
+MONITOR_ALT = re.compile(r"monitor-alt:|\bonPhone:")
 
 
 def files(root: pathlib.Path, exclude: list[str]):
@@ -76,6 +94,18 @@ def check(root: pathlib.Path) -> list[tuple[str, str, str]]:
             for n, line in enumerate(lines, 1):
                 if CSS_MOTION.search(line):
                     css_motion.append(f"{rel}:{n}")
+        if suffix == ".swift" and path.name != "CommandPalette.swift" and BUILDS_ROWS.search(text) \
+                and ("CommandRow" in text or "CommandList" in text):
+            for n, line in enumerate(lines, 1):
+                code = line.split("//", 1)[0]
+                if not MONITOR_HIDDEN.search(code):
+                    continue
+                if any(MONITOR_ALT.search(l) for l in lines[max(0, n - 4):n]):
+                    continue
+                findings.append(("warning", f"{rel}:{n}",
+                                 "monitor-hidden: a palette command hidden on the monitor; rebuild it in the palette "
+                                 "(a pick, typed or confirm step), mark it onPhone:, or name the alternative with "
+                                 "// monitor-alt: …"))
         if suffix == ".swift":
             if SWIFT_REDUCED.search(text):
                 swift_reduced = True

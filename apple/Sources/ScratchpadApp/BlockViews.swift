@@ -1,5 +1,20 @@
 import SwiftUI
 import ScratchpadCore
+#if os(iOS)
+import GameController
+#endif
+
+/// A keyboard is plugged in or paired: ↩ in a table cell goes down a row, as in a spreadsheet. With only the on-screen
+/// keyboard, ↩ does what it always did.
+enum HardwareKeyboard {
+    static var attached: Bool {
+        #if os(iOS)
+        return GCKeyboard.coalesced != nil
+        #else
+        return true
+        #endif
+    }
+}
 
 struct BlockView: View {
     @EnvironmentObject var state: AppState
@@ -102,6 +117,7 @@ private struct KeepsFocus: ViewModifier {
                 if isFocused {
                     state.caretToken = UUID()
                     if state.caret?.field != field { state.caret = Caret(field: field) }
+                    if state.editing != field { state.editing = field }
                 } else if state.caret?.field == field {
                     // The fold tears this field down too; only forget the caret if nothing has
                     // taken focus back once the rebuilt layout has settled.
@@ -109,8 +125,17 @@ private struct KeepsFocus: ViewModifier {
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 800_000_000)
                         if state.caretToken == token, state.caret?.field == field { state.caret = nil }
+                        if state.caretToken == token, state.editing == field { state.editing = nil }
                     }
+                } else if state.editing == field {
+                    state.editing = nil
                 }
+            }
+            // ⌘K's "Edit the block", ↩ on a selected block, Tab in a table: the caret comes here.
+            .onChange(of: state.focusRequest) { _, wanted in
+                guard wanted == field else { return }
+                state.focusRequest = nil
+                refocus()
             }
             .onAppear {
                 guard state.caret?.field == field else { return }
@@ -223,6 +248,12 @@ struct TableBlock: View {
                 .foregroundStyle(p.ink)
                 .focused($focused, equals: pos)
                 .keepsFocus(Caret.cell(block.id, r, c), isFocused: focused == pos) { focused = pos }
+                // From a keyboard, as a spreadsheet: Tab and ⇧Tab along, ↩ down a row (Esc stops, as everywhere).
+                .onSubmit { if HardwareKeyboard.attached { move(from: pos, by: cols) } }
+                .onKeyPress(.tab, phases: .down) { press in
+                    move(from: pos, by: press.modifiers.contains(.shift) ? -1 : 1)
+                    return .handled
+                }
                 .opacity(showComputed ? 0 : 1)
             if showComputed {
                 Text(value.display)
@@ -238,6 +269,13 @@ struct TableBlock: View {
         .overlay(alignment: .bottom) { Rectangle().fill(r == 0 ? p.rule : p.hairline).frame(height: 1) }
         .overlay(alignment: .trailing) { if c < cols - 1 { Rectangle().fill(p.hairline).frame(width: 1) } }
         .overlay { if focused == pos { Rectangle().stroke(p.accent, lineWidth: 1.5) } }
+    }
+
+    /// The next cell along, wrapping at the row's ends; past the last cell, the caret stays.
+    private func move(from pos: CellPos, by step: Int) {
+        let n = pos.r * cols + pos.c + step
+        guard n >= 0, n < rows.count * cols else { return }
+        focused = CellPos(r: n / cols, c: n % cols)
     }
 
     private func cellFont(header: Bool, mono: Bool) -> Font {

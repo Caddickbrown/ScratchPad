@@ -118,6 +118,16 @@ final class AppState: ObservableObject {
     /// Changes each time an editor takes focus; a lost focus only clears `caret` if no editor
     /// has taken it back by the time the rebuilt layout has settled.
     var caretToken = UUID()
+    /// A field that should take the caret now (a `Caret` key): ⌘K's "Edit the block", ↩ on a selected block, Tab in a
+    /// table. The field with that key takes focus and clears it.
+    @Published var focusRequest: String?
+    /// The field being typed in, as a `Caret` key, for the monitor's mark. Published, unlike `caret`: it changes only as
+    /// focus moves, not with each keystroke.
+    @Published var editing: String?
+    /// Blocks' heights as last drawn, for "Make it taller" on a block that sizes to its contents. Not published.
+    var drawnHeights: [String: CGFloat] = [:]
+    /// The same as the monitor draws them, which is truer for text: the phone's editor measures tall. Not published.
+    var monitorHeights: [String: CGFloat] = [:]
 
     private(set) var store: PadStore
     private var saveTask: Task<Void, Never>?
@@ -415,6 +425,22 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// "Change its words…" from ⌘K.
+    func renameTodo(_ id: String, _ text: String) {
+        guard current?.todos.contains(where: { $0.id == id }) == true else { return }
+        setTodoText(id, text)
+    }
+
+    /// The caret into a field from the keyboard, the sheet's own `KeepsFocus` taking it. Set after a moment, so the
+    /// menu's window has let go of the keyboard first.
+    func requestFocus(_ field: String) {
+        caret = Caret(field: field)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            self?.focusRequest = field
+        }
+    }
+
     func cycle(_ id: String) {
         guard let i = current?.todos.firstIndex(where: { $0.id == id }) else { return }
         current?.todos[i].status = current!.todos[i].status.next
@@ -568,6 +594,34 @@ final class AppState: ObservableObject {
             } else {
                 b.w = w
             }
+        }
+    }
+
+    /// Taller or shorter from ⌘K, from the height it's drawn at when it fits its contents.
+    func heightenBlock(_ id: String, by d: Int) {
+        let drawn = (monitorHeights[id] ?? drawnHeights[id]).map { Int($0.rounded()) } ?? 120
+        mutate(id) { b in b.h = max(Block.minHeight, (b.h ?? drawn) + d) }
+    }
+
+    /// One table column wider or narrower; the table's width follows.
+    func widenTableColumn(_ id: String, col: Int, by d: Int) {
+        mutate(id) { b in
+            var w = TableLayout.widths(for: b)
+            guard col < w.count else { return }
+            w[col] = max(TableLayout.minColumn, w[col] + d)
+            b.colWidths = w
+            b.w = max(Block.minWidth, w.reduce(0, +))
+        }
+    }
+
+    /// A cell typed in ⌘K's "Change a cell…".
+    func setTableCell(_ id: String, row r: Int, col c: Int, _ text: String) {
+        mutate(id) { b in
+            var rows = b.rows ?? [[""]]
+            guard r < rows.count else { return }
+            while rows[r].count <= c { rows[r].append("") }
+            rows[r][c] = text
+            b.rows = rows
         }
     }
 

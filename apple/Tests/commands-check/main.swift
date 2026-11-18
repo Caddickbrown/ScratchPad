@@ -27,9 +27,10 @@ let sheets = [State.Sheet(id: "s1", title: "Planning", typed: "Planning", detail
               State.Sheet(id: "s3", title: "Untitled sheet", detail: "Mon 16 Nov")]
 let todos = [State.Todo(id: "t1", text: "Buy milk"), State.Todo(id: "t2", text: "Call Sam", status: "deferred"),
              State.Todo(id: "t3", text: "Post card", status: "done")]
-let table = State.Block(id: "b1", kind: "table", name: "Table “Costs”", rows: 3, cols: 2)
-let text = State.Block(id: "b2", kind: "text", name: "Text “Ideas”", font: "sans", fontSize: 14)
-let link = State.Block(id: "b3", kind: "link", name: "Link “Kit”", url: "https://example.com")
+let table = State.Block(id: "b1", kind: "table", name: "Table “Costs”", rows: 3, cols: 2,
+                        cells: [["Item", "Cost"], ["Tea", "3"], ["Total", "=SUM(B2:B2)"]], widths: [120, 120])
+let text = State.Block(id: "b2", kind: "text", name: "Text “Ideas”", font: "sans", fontSize: 14, text: "Ideas")
+let link = State.Block(id: "b3", kind: "link", name: "Link “Kit”", url: "https://example.com", text: "Kit")
 
 /// A sheet open on an iPad, wide enough for the to-do column.
 func onSheet(_ change: (inout State) -> Void = { _ in }) -> List {
@@ -133,9 +134,17 @@ check(row("sheet.untag", onSheet { $0.current?.tags = [] }) == nil, "no tags, no
 check(first("copy image", s) == .copyImage, "copy the sheet as an image")
 check(first("copy to-dos", s) == .copyTodos, "copy the to-dos as Markdown")
 check(first("dup", s) == .duplicate, "duplicate")
-check(first("delete this sheet", s) == .askDelete("s1"), "delete goes through the app's question")
+check(answer("delete", "", s) == .deleteSheet("s1"), "delete asks in the menu, where the monitor shows it, then deletes")
 check(row("delete", s).map { $0.destructive && $0.confirms } == true, "red, and asks")
-check(answer("delete.other", "shop", s) == .askDelete("s2"), "delete another sheet, asking first")
+var del = CommandPalette(s)
+_ = del.choose("delete.other"); del.type("shop")
+check(del.press(.enter) == .stay && del.isConfirming, "delete another sheet: it asks first")
+check(del.rows.first?.title == "Delete “Shopping”" && del.rows.first?.destructive == true, "red, by name: \(del.rows.map(\.title))")
+check(del.press(.enter) == .run(.deleteSheet("s2")), "and Return deletes it")
+var keep = CommandPalette(s)
+_ = keep.choose("delete")
+_ = keep.press(.esc)
+check(!keep.isConfirming && keep.depth == 0, "Esc keeps the sheet")
 check(first("export", s) == .export, "the export dialog")
 
 // MARK: To-dos
@@ -157,9 +166,9 @@ pal.type("defer")
 check(pal.rows.isEmpty || pal.rows.first?.id != "todo.defer", "and isn't offered deferring again")
 check(row("todo.sinks", s)?.title == "Keep done to-dos in place" && row("todo.sinks", s)?.step == .run(.doneSinks(false)), "done sinks says which way it goes")
 check(answer("todosort", "overdue", s) == .todoSort("overdueFirst"), "sort the to-dos")
-check(row("daily", s)?.title == "Make a new sheet each day" && row("daily", s)?.step == .run(.newSheetEachDay(true)),
+check(row("setting.daily", s)?.title == "Setting: A new sheet each day — turn on" && row("setting.daily", s)?.step == .run(.newSheetEachDay(true)),
       "a new sheet each day is off unless chosen, and the row says it turns it on")
-check(row("daily", onSheet { $0.newSheetEachDay = true })?.step == .run(.newSheetEachDay(false)), "and turns it off again")
+check(row("setting.daily", onSheet { $0.newSheetEachDay = true })?.step == .run(.newSheetEachDay(false)), "and turns it off again")
 check(first("new", s) == .newSheet, "New makes a sheet")
 
 // The one being typed in comes first, under its name.
@@ -219,7 +228,7 @@ check(first("paste", s) == .paste, "paste as a block")
 // MARK: Settings
 
 var look = CommandPalette(s)
-_ = look.choose("look")
+_ = look.choose("setting.look")
 _ = look.takeEffects()
 _ = look.press(.down)
 check(look.takeEffects() == [.preview(.appearance("light"))], "Light shows at once")
@@ -229,11 +238,79 @@ _ = look.press(.esc)
 check(look.takeEffects() == [.revert(.appearance("system"))], "Esc puts the system's back")
 check(first("switch to dark", s) == .appearance("dark"), "switch to dark")
 var dk = CommandPalette(s); dk.type("dark mode")
-check(dk.rows.prefix(2).map(\.id) == ["look", "look.dark"], "dark mode finds Appearance and the switch")
+check(dk.rows.prefix(2).map(\.id) == ["setting.look", "look.dark"], "dark mode finds Appearance and the switch")
 check(row("look.dark", onSheet { $0.dark = true })?.title == "Switch to light", "and back")
-check(answer("newfont", "serif", s) == .defaultFont("serif"), "the font for new blocks")
-check(answer("motion", "subtle", s) == .animation("subtle"), "animation")
-check(row("motion", onSheet { $0.reduceMotion = true })?.detail?.contains("Reduce Motion") == true, "says when the system has it off")
+check(answer("setting.newfont", "serif", s) == .defaultFont("serif"), "the font for new blocks")
+check(answer("setting.motion", "subtle", s) == .animation("subtle"), "animation")
+check(row("setting.motion", onSheet { $0.reduceMotion = true })?.detail?.contains("Reduce Motion") == true, "says when the system has it off")
+
+// MARK: Monitor Mode: every phone action from the keyboard (audit 18 Nov)
+
+let mon = { (change: (inout State) -> Void) in onSheet { $0.monitorShows = true; change(&$0) } }
+// Typing in a block: the caret goes into it.
+check(first("edit the block", textOn) == .editBlock("b2"), "Edit the block puts the caret in it")
+check(CommandPalette(textOn).sections.first?.rows.first?.id == "block.edit", "and is the selected block's first row")
+check(row("block.edit", textOn)?.detail?.contains("↩") == true, "it says ↩ does it")
+check(answer("block.words", "Better ideas", textOn, clear: true) == .setText("b2", "Better ideas"), "or its words typed in the menu")
+check(answer("block.words", "", textOn) == nil, "unchanged words do nothing")
+check(first("edit the link", onSheet { $0.block = link }) == .editBlock("b3"), "a link block can be typed in")
+check(answer("link.title", "Kit docs", onSheet { $0.block = link }, clear: true) == .linkTitle("b3", "Kit docs"), "a link's title")
+check(answer("link.url", "app-kit.dev", onSheet { $0.block = link }, clear: true) == .linkURL("b3", "app-kit.dev"), "and its address")
+check(first("copy the link", onSheet { $0.block = link }) == .copyLink("b3"), "copy the link")
+check(row("block.link", onSheet { $0.block = link })?.onPhone != nil, "Open the link says it opens on the phone")
+let file = State.Block(id: "b4", kind: "file", name: "File “a.pdf”")
+check(first("open the file", onSheet { $0.block = file }) == .openFile("b4"), "a file block opens")
+check(row("block.file", onSheet { $0.block = file })?.onPhone != nil, "on the phone, and says so")
+// Tables
+check(first("edit the table", tableOn) == .editCell("b1", row: 0, col: 0), "Edit the table: the caret in A1")
+check(answer("table.cell", "b3", tableOn) == nil, "a cell is picked first")
+var cell = CommandPalette(tableOn)
+_ = cell.choose("table.cell"); cell.type("b2")
+check(cell.press(.enter) == .stay && cell.query == "3", "B2 opens with what's in it: \(cell.query)")
+_ = cell.press(.clear); cell.type("=B2*2")
+check(cell.press(.enter) == .run(.setCell("b1", row: 1, col: 1, "=B2*2")), "and a formula can be typed over it")
+check(everything(tableOn).contains { $0.id == "table.cell" }, "Change a cell… is listed")
+var col = CommandPalette(tableOn)
+_ = col.choose("table.colWider"); col.type("column b")
+check(col.press(.enter) == .run(.widenColumn("b1", col: 1, by: 48)), "widen column B")
+check(first("make it taller", tableOn) == .heighten("b1", 48), "taller")
+check(row("block.shorter", tableOn) == nil, "nothing to shorten while it fits its contents")
+check(first("make it shorter", onSheet { var t = text; t.height = 200; $0.block = t }) == .heighten("b2", -48), "shorter")
+check(first("fit its height", onSheet { var t = text; t.height = 200; $0.block = t }) == .fitHeight("b2"), "back to fitting")
+check(List.columnName(0) == "A" && List.columnName(25) == "Z" && List.columnName(26) == "AA", "column letters")
+// To-dos
+check(answer("todo.words", "Buy oat milk", typing, clear: true) == .renameTodo("t1", "Buy oat milk"), "change a to-do's words")
+check(answer("todo.words", "Buy milk", typing, clear: true) == nil, "not to the same words")
+var words = CommandPalette(typing)
+_ = words.choose("todo.words")
+check(words.query == "Buy milk", "the words it has are in the box")
+check(first("put it on the sheet", typing) == .todoToBlock("t1"), "a to-do onto the sheet as a block")
+var inner = CommandPalette(s)
+_ = inner.choose("todo.pick"); inner.type("milk"); _ = inner.press(.enter)
+check(inner.rows.map(\.id).contains("todo.words") && inner.rows.map(\.id).contains("todo.toBlock"),
+      "both under A to-do… too: \(inner.rows.map(\.id))")
+// Dates: the month grid is a phone sheet, so the monitor gets the next two weeks.
+check(answer("onDate", "calendar", mon { _ in }) == nil, "no month grid on the monitor")
+var day = CommandPalette(mon { _ in })
+_ = day.choose("onDate")
+check(day.rows.first?.title == "Tuesday 17 November" && day.rows.count >= 2, "the coming days instead: \(day.rows.map(\.title))")
+check(day.press(.enter) == .run(.newOnDate("2026-11-17")), "and one can be chosen")
+var move = CommandPalette(mon { _ in })
+_ = move.choose("sheet.date")
+check(move.rows.first?.step == .run(.moveSheet("2026-11-17")), "the sheet's date too")
+// What needs the phone says so on the monitor.
+check(row("export", s)?.onPhone != nil, "Export… finishes on the phone, and says so")
+check(row("import", home)?.onPhone != nil, "so does Import")
+check(row("settings", home)?.onPhone != nil, "and Settings")
+check(row("settings", List(state: State(sheets: sheets, storePlace: "iCloud Drive")))?.detail == "Sheets are kept in: iCloud Drive",
+      "which says where the sheets are")
+// Nothing is left off the list on the monitor.
+for (name, l) in lists {
+    var st = l.state; st.monitorShows = true
+    let onMon = Set(everything(List(state: st)).map(\.id)), off = Set(everything(l).map(\.id))
+    let gone = off.subtracting(onMon).filter { !$0.hasSuffix(".grid") }
+    check(gone.isEmpty, "\(name): nothing hidden on the monitor but the month grid: \(gone.sorted())")
+}
 
 // MARK: Undo
 

@@ -219,15 +219,27 @@ final class MonitorSceneDelegate: UIResponder, UIWindowSceneDelegate {
 /// holds a hidden Esc button: SwiftUI declares its shortcut on that view tree's hosting controller,
 /// which is in the field's chain. A field in an alert goes to the alert's own Cancel, or on to the
 /// root's button, with the same result.
+/// The keys heard while nothing is being typed in, beside Esc and ⌫ (kit/specs/KEYS.md): ↩ types in the selected
+/// block, ⌘Z undoes, ⌥ and the arrows nudge it, ⇧⌥ and the arrows resize it, ⇧⌘T adds a to-do.
+struct MonitorKeys {
+    var edit: () -> Void = {}
+    var undo: () -> Void = {}
+    var move: (_ dx: Int, _ dy: Int) -> Void = { _, _ in }
+    var resize: (_ dw: Int, _ dh: Int) -> Void = { _, _ in }
+    var addTodo: () -> Void = {}
+}
+
 struct MonitorEscape: UIViewControllerRepresentable {
     let stepBack: () -> Void
     let deleteBlock: () -> Void
+    var keys = MonitorKeys()
 
     func makeUIViewController(context: Context) -> MonitorEscapeController { MonitorEscapeController() }
 
     func updateUIViewController(_ controller: MonitorEscapeController, context: Context) {
         controller.stepBack = stepBack
         controller.deleteBlock = deleteBlock
+        controller.keys = keys
     }
 
     /// Whether a field has the caret.
@@ -258,6 +270,7 @@ final class MonitorEscapeController: UIViewController {
     private static weak var active: MonitorEscapeController?
     var stepBack: () -> Void = {}
     var deleteBlock: () -> Void = {}
+    var keys = MonitorKeys()
     private var reclaim: Timer?
 
     override var canBecomeFirstResponder: Bool { true }
@@ -269,8 +282,37 @@ final class MonitorEscapeController: UIViewController {
         let delete = ["\u{8}", UIKeyCommand.inputDelete].map {
             UIKeyCommand(input: $0, modifierFlags: [], action: #selector(deletePressed))
         }
-        return [command] + delete
+        func key(_ input: String, _ flags: UIKeyModifierFlags, _ action: Selector, _ title: String? = nil) -> UIKeyCommand {
+            let k = UIKeyCommand(input: input, modifierFlags: flags, action: action)
+            if let title { k.discoverabilityTitle = title }
+            return k
+        }
+        return [command] + delete + [
+            key("\r", [], #selector(returnPressed), "Edit the block"),
+            key("z", .command, #selector(undoPressed), "Undo"),
+            key("t", [.command, .shift], #selector(addTodoPressed), "Add a to-do"),
+            key(UIKeyCommand.inputLeftArrow, .alternate, #selector(nudgeLeft), "Nudge left"),
+            key(UIKeyCommand.inputRightArrow, .alternate, #selector(nudgeRight), "Nudge right"),
+            key(UIKeyCommand.inputUpArrow, .alternate, #selector(nudgeUp), "Nudge up"),
+            key(UIKeyCommand.inputDownArrow, .alternate, #selector(nudgeDown), "Nudge down"),
+            key(UIKeyCommand.inputLeftArrow, [.alternate, .shift], #selector(narrower), "Narrower"),
+            key(UIKeyCommand.inputRightArrow, [.alternate, .shift], #selector(wider), "Wider"),
+            key(UIKeyCommand.inputUpArrow, [.alternate, .shift], #selector(shorter), "Shorter"),
+            key(UIKeyCommand.inputDownArrow, [.alternate, .shift], #selector(taller), "Taller"),
+        ]
     }
+
+    @objc private func returnPressed() { keys.edit() }
+    @objc private func undoPressed() { keys.undo() }
+    @objc private func addTodoPressed() { keys.addTodo() }
+    @objc private func nudgeLeft() { keys.move(-ScratchpadCommandState.grid, 0) }
+    @objc private func nudgeRight() { keys.move(ScratchpadCommandState.grid, 0) }
+    @objc private func nudgeUp() { keys.move(0, -ScratchpadCommandState.grid) }
+    @objc private func nudgeDown() { keys.move(0, ScratchpadCommandState.grid) }
+    @objc private func narrower() { keys.resize(-ScratchpadCommandState.grid * 2, 0) }
+    @objc private func wider() { keys.resize(ScratchpadCommandState.grid * 2, 0) }
+    @objc private func shorter() { keys.resize(0, -ScratchpadCommandState.grid * 2) }
+    @objc private func taller() { keys.resize(0, ScratchpadCommandState.grid * 2) }
 
     @objc private func escape() { stepBack() }
     @objc private func deletePressed() { deleteBlock() }
@@ -367,24 +409,32 @@ struct MonitorBoard: View {
             ZStack {
                 p.desk
                 if atHome {
-                    MonitorHome(metrics: m).padding(m.padding)
+                    MonitorHome(metrics: m).padding(m.padding).padding(.bottom, m.text * 1.5)
                 } else if let pad = state.current {
                     VStack(alignment: .leading, spacing: m.padding * 0.5) {
                         MonitorHeader(pad: pad, metrics: m)
                         HStack(alignment: .top, spacing: m.padding) {
-                            MonitorSheet(pad: pad, selectedID: state.selectedBlockID,
+                            MonitorSheet(pad: pad, selectedID: state.selectedBlockID, editing: state.editing,
                                          viewport: viewport?.sheetID == pad.id ? viewport?.rect : nil,
                                          hold: hold?.sheetID == pad.id ? hold : nil)
-                            MonitorTodos(pad: pad, metrics: m,
+                            MonitorTodos(pad: pad, metrics: m, editing: state.editing,
                                          target: todoTarget?.sheetID == pad.id ? todoTarget?.todoID : nil)
                                 .frame(width: m.column)
                         }
                     }
                     .padding(m.padding)
+                    .padding(.bottom, m.text * 1.5)
                 } else {
                     Text("Scratchpad").font(Fonts.ui(m.text * 2, .semibold)).foregroundStyle(p.muted)
                 }
-                // Its own keys, as the monitor has no hint bar.
+                VStack(spacing: m.text * 0.6) {
+                    Spacer(minLength: 0)
+                    // What commands did, Undo (⌘Z) and "Finish on the phone", where they can be seen.
+                    CommandNoticeStack(z: m.text / 16)
+                    MonitorHints(metrics: m, atHome: atHome)
+                }
+                .padding(.horizontal, m.padding).padding(.bottom, m.padding * 0.5)
+                // Its own keys, drawn in the panel.
                 if commands.onMonitor, let menu = commands.menu {
                     ScratchpadCommandPanel(menu: menu, z: m.text / 16, showsKeys: true)
                         .padding(.top, m.padding * 2)
@@ -396,32 +446,114 @@ struct MonitorBoard: View {
 }
 
 /// The phone's sheet list, on the monitor: where Esc ends up, so it shows on the screen being
-/// watched. Newest edits first, in columns, narrowing as the phone's search does.
+/// watched. Grouped as the rail is (by day, month, recent or tag), pinned last, narrowing as the phone's search does.
 private struct MonitorHome: View {
     @EnvironmentObject var state: AppState
     @Environment(\.palette) var p
     let metrics: MonitorMetrics
+    @AppStorage(SettingsKey.sidebarMode) private var mode: SidebarMode = .byDay
+    @AppStorage(SettingsKey.tagSort) private var tagSort: TagSort = .alphabetical
 
-    private var sheets: [Pad] { Sidebar.recent(state.filteredPads).flatMap(\.sheets) + Sidebar.pinned(state.filteredPads) }
+    private struct HomeGroup: Identifiable {
+        var id: String
+        var label: String
+        var detail: String
+        var sheets: [Pad]
+    }
+
+    private var groups: [HomeGroup] {
+        let visible = state.filteredPads
+        let rail: [SheetGroup]
+        switch mode {
+        case .byDay: rail = Sidebar.byDay(visible, today: state.todayKey)
+        case .byMonth: rail = Sidebar.byMonth(visible)
+        case .recent: rail = Sidebar.recent(visible)
+        case .byTag: rail = Sidebar.byTag(visible, sort: tagSort)
+        }
+        var out = rail.map { HomeGroup(id: "g/" + $0.id, label: $0.label, detail: $0.detail, sheets: $0.sheets) }
+        let pinned = Sidebar.pinned(visible)
+        if !pinned.isEmpty { out.append(HomeGroup(id: "pinned", label: "Pinned", detail: "", sheets: pinned)) }
+        return out
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: metrics.padding * 0.75) {
-            Text("Scratchpad").font(Fonts.ui(metrics.text * 2, .bold)).foregroundStyle(p.ink)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.column), spacing: metrics.text)], alignment: .leading, spacing: metrics.text) {
-                ForEach(sheets.prefix(48)) { pad in
-                    VStack(alignment: .leading, spacing: metrics.text * 0.2) {
-                        Text(pad.displayTitle).font(Fonts.ui(metrics.text, .medium)).foregroundStyle(p.ink).lineLimit(1)
-                        Text(pad.date ?? "Pinned").font(Fonts.mono(metrics.text * 0.7)).foregroundStyle(p.muted)
+        VStack(alignment: .leading, spacing: metrics.padding * 0.5) {
+            HStack(alignment: .firstTextBaseline, spacing: metrics.text) {
+                Text("Scratchpad").font(Fonts.ui(metrics.text * 2, .bold)).foregroundStyle(p.ink)
+                if !state.searchText.isEmpty {
+                    Text("Searching “\(state.searchText)”").font(Fonts.ui(metrics.text)).foregroundStyle(p.muted)
+                }
+                Spacer(minLength: 0)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: metrics.text * 0.6) {
+                    ForEach(groups) { group in
+                        HStack(alignment: .firstTextBaseline, spacing: metrics.text * 0.5) {
+                            Text(group.label).font(Fonts.ui(metrics.text * 0.85, .semibold)).foregroundStyle(p.muted)
+                            if !group.detail.isEmpty {
+                                Text(group.detail).font(Fonts.mono(metrics.text * 0.7)).foregroundStyle(p.muted)
+                            }
+                        }
+                        .padding(.top, metrics.text * 0.4)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.column), spacing: metrics.text)],
+                                  alignment: .leading, spacing: metrics.text) {
+                            ForEach(group.sheets) { pad in
+                                VStack(alignment: .leading, spacing: metrics.text * 0.2) {
+                                    Text(pad.displayTitle).font(Fonts.ui(metrics.text, .medium)).foregroundStyle(p.ink).lineLimit(1)
+                                    Text(pad.date ?? "Pinned").font(Fonts.mono(metrics.text * 0.7)).foregroundStyle(p.muted)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(metrics.text * 0.8)
+                                .background(p.paper, in: RoundedRectangle(cornerRadius: 6))
+                            }
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(metrics.text * 0.8)
-                    .background(p.paper, in: RoundedRectangle(cornerRadius: 6))
                 }
             }
-            Spacer(minLength: 0)
+            .scrollDisabled(true)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipped()
+    }
+}
+
+/// What the keys do, under the board: the monitor can't be touched, so it says how to work it.
+private struct MonitorHints: View {
+    @EnvironmentObject var state: AppState
+    @ObservedObject private var notices = CommandNotices.shared
+    @Environment(\.palette) var p
+    let metrics: MonitorMetrics
+    let atHome: Bool
+
+    private var hints: [(String, String)] {
+        if state.editing != nil {
+            let cell = state.editing?.contains("#cell-") == true
+            return cell ? [("Tab", "Next cell"), ("⇧Tab", "Back"), ("↩", "Down"), ("esc", "Done"), ("⌘K", "Commands")]
+                        : [("esc", "Done typing"), ("⌘K", "Commands")]
+        }
+        if atHome || state.current == nil { return [("⌘K", "Open a sheet or do anything"), ("esc", "Back")] }
+        var out = [("⌘K", "Commands")]
+        if state.selectedBlockID != nil {
+            out += [("↩", "Type in it"), ("⌥ arrows", "Move"), ("⇧⌥ arrows", "Resize"), ("⌫", "Delete"), ("esc", "Let go")]
+        } else {
+            out += [("esc", "Sheet list")]
+        }
+        out += [("⇧⌘T", "Add a to-do"), ("⇧⌘V", "Paste")]
+        if notices.canUndo { out.append(("⌘Z", "Undo")) }
+        return out
+    }
+
+    var body: some View {
+        HStack(spacing: metrics.text) {
+            ForEach(hints, id: \.0) { key, label in
+                HStack(spacing: metrics.text * 0.3) {
+                    Text(key).font(Fonts.mono(metrics.text * 0.7, .medium)).foregroundStyle(p.ink)
+                    Text(label).font(Fonts.ui(metrics.text * 0.7)).foregroundStyle(p.muted)
+                }
+                .fixedSize()
+            }
+            Spacer(minLength: 0)
+        }
     }
 }
 
@@ -453,6 +585,8 @@ struct MonitorSheet: View {
     @Environment(\.motion) var motion
     let pad: Pad
     let selectedID: String?
+    /// The field being typed in on the phone (a `Caret` key), marked here.
+    var editing: String?
     let viewport: MonitorViewport?
     let hold: MonitorHold?
     /// Heights of blocks that size to their content, as drawn here.
@@ -490,7 +624,8 @@ struct MonitorSheet: View {
                 DotGrid(color: p.dot).frame(width: size.width, height: size.height)
                 // The held block is left to the live layer, which draws it where the finger has it.
                 ForEach(pad.blocks.filter { $0.id != hold?.blockID }) { block in
-                    MonitorBlock(block: block, selected: block.id == selectedID)
+                    MonitorBlock(block: block, selected: block.id == selectedID,
+                                 editing: editing.flatMap { $0 == block.id || $0.hasPrefix(block.id + "#") ? $0 : nil })
                 }
                 if let hold {
                     MonitorLiveLayer(live: MonitorModel.shared.live, height: heights[hold.blockID] ?? 120)
@@ -505,6 +640,7 @@ struct MonitorSheet: View {
                 // A held block is drawn by the live layer and drops out of this; it keeps its height.
                 let all = heights.merging(measured) { $1 }
                 if all != heights { heights = all }
+                MonitorModel.shared.state?.monitorHeights.merge(measured) { $1 }
             }
             .background(p.paper)
             .scaleEffect(scale, anchor: .topLeading)
@@ -620,6 +756,8 @@ private struct MonitorBlock: View {
     @Environment(\.palette) var p
     let block: Block
     let selected: Bool
+    /// The field of this block being typed in, if one is: the whole block, a cell, a link's title or address.
+    var editing: String? = nil
 
     var body: some View {
         content
@@ -630,6 +768,13 @@ private struct MonitorBlock: View {
             })
             .overlay {
                 if selected { Rectangle().stroke(p.accent, lineWidth: 1.5).padding(-3) }
+            }
+            // Being typed in: a bar down its left side, as a caret can't be drawn where the phone has it.
+            .overlay(alignment: .leading) {
+                if editing != nil, block.kind != .table {
+                    Rectangle().fill(p.accent).frame(width: 4).padding(.vertical, -3).offset(x: -10)
+                        .accessibilityLabel("Being typed in")
+                }
             }
             .rotationEffect(.degrees(block.rotation))
             .offset(x: CGFloat(block.x), y: CGFloat(block.y))
@@ -651,7 +796,7 @@ private struct MonitorBlock: View {
                 .padding(.horizontal, 13).padding(.vertical, 16)
                 .background(p.codeBg, in: RoundedRectangle(cornerRadius: 4))
         case .table:
-            MonitorTable(block: block)
+            MonitorTable(block: block, editing: editing)
         case .image:
             ImageBlock(block: block)
         case .file:
@@ -676,6 +821,7 @@ private struct MonitorBlock: View {
 private struct MonitorTable: View {
     @Environment(\.palette) var p
     let block: Block
+    var editing: String? = nil
 
     var body: some View {
         let rows = block.rows ?? [[""]]
@@ -706,6 +852,7 @@ private struct MonitorTable: View {
                                 .background(r == 0 ? p.chrome : p.cell)
                                 .overlay(alignment: .bottom) { Rectangle().fill(r == 0 ? p.rule : p.hairline).frame(height: 1) }
                                 .overlay(alignment: .trailing) { if c < cols - 1 { Rectangle().fill(p.hairline).frame(width: 1) } }
+                                .overlay { if editing == Caret.cell(block.id, r, c) { Rectangle().stroke(p.accent, lineWidth: 2.5) } }
                         }
                     }
                 }
@@ -720,11 +867,16 @@ private struct MonitorTodos: View {
     @Environment(\.palette) var p
     let pad: Pad
     let metrics: MonitorMetrics
+    /// The field being typed in on the phone; a to-do's is marked.
+    var editing: String? = nil
     /// The row a dragged to-do would land in front of: a line above it, as on the phone.
     let target: String?
+    @AppStorage(SettingsKey.todoSort) private var sort: TodoSortMode = .manual
+    @AppStorage(SettingsKey.doneSinks) private var doneSinks = true
 
     var body: some View {
-        let rows = pad.todos.filter(\.isFilled)
+        // In the order the phone's column has them: its sort, and done sinking or not.
+        let rows = TodoSort.sorted(pad.todos, mode: sort, doneSinks: doneSinks).filter(\.isFilled)
         VStack(alignment: .leading, spacing: metrics.text * 0.6) {
             HStack(alignment: .firstTextBaseline) {
                 Text("To-do").font(Fonts.ui(metrics.text, .semibold)).foregroundStyle(p.ink)
@@ -747,6 +899,11 @@ private struct MonitorTodos: View {
                         .lineLimit(3)
                 }
                 .font(Fonts.ui(metrics.text * 0.9))
+                .overlay(alignment: .leading) {
+                    if editing == Caret.todo(todo.id) {
+                        Rectangle().fill(p.accent).frame(width: 3).offset(x: -metrics.text * 0.5)
+                    }
+                }
                 .overlay(alignment: .top) {
                     if todo.id == target {
                         Rectangle().fill(p.accent).frame(height: 3).offset(y: -metrics.text * 0.35)

@@ -107,7 +107,7 @@ struct CanvasView: View {
                         isMoving: moving?.id == block.id,
                         inserting: state.justInserted.contains(block.id),
                         measuredHeight: height(of: block),
-                        onMeasure: { h in if heights[block.id] != h { heights[block.id] = h } },
+                        onMeasure: { h in if heights[block.id] != h { heights[block.id] = h; state.drawnHeights[block.id] = h } },
                         onSelect: { focusCanvas in select(block.id, focusCanvas: focusCanvas) },
                         onMove: { t in moveChanged(block.id, t) },
                         onMoveEnd: { t in moveEnded(block.id, t) },

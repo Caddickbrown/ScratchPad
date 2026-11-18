@@ -98,6 +98,8 @@ enum ScratchpadCommandMenu {
             out.undo = "The \(d.block.kind.label.lowercased()) block comes back"
         }
         out.searchText = state.searchText
+        out.monitorShows = model.isConnected
+        out.storePlace = StoreWords.place(usingICloud: state.usingICloud)
         out.railMode = d.string(forKey: SettingsKey.sidebarMode) ?? SidebarMode.byDay.rawValue
         out.tagSort = d.string(forKey: SettingsKey.tagSort) ?? TagSort.alphabetical.rawValue
         out.wide = !compact
@@ -122,7 +124,9 @@ enum ScratchpadCommandMenu {
     private static func sheet(_ pad: Pad) -> ScratchpadCommandState.Sheet {
         let untitled = pad.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return .init(id: pad.id, title: untitled ? (pad.preview ?? pad.displayTitle) : pad.displayTitle, typed: pad.title,
-                     detail: pad.date.map(DayLabel.shortDate) ?? "Pinned", tags: pad.tags)
+                     detail: pad.date.map(DayLabel.shortDate) ?? "Pinned", tags: pad.tags,
+                     contents: [pad.blocks.count == 1 ? "1 block" : "\(pad.blocks.count) blocks",
+                                pad.filledCount == 1 ? "1 to-do" : "\(pad.filledCount) to-dos"].joined(separator: " and "))
     }
 
     private static func todo(_ t: Todo) -> ScratchpadCommandState.Todo {
@@ -133,7 +137,8 @@ enum ScratchpadCommandMenu {
         let rows = b.rows ?? []
         return .init(id: b.id, kind: b.kind.rawValue, name: name(b), font: b.font.rawValue, fontSize: b.fontSize,
                      bold: b.bold, italic: b.italic, rotation: b.rotation, rows: rows.count,
-                     cols: rows.map(\.count).max() ?? 0, url: b.url)
+                     cols: rows.map(\.count).max() ?? 0, url: b.url, text: b.text, cells: rows, height: b.h,
+                     widths: b.kind == .table ? TableLayout.widths(for: b) : [])
     }
 
     /// "Text “Call Sam”": the kind, and the first words it shows.

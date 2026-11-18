@@ -21,7 +21,7 @@ enum ScratchpadCommand: Equatable {
     case sheets, today, settings, open(String), search(String), clearSearch
     case railMode(String), tagSort(String), sidebar(Bool)
     // The sheet
-    case newSheet, newOnDate(String), chooseNewDate, newPinned(String), duplicate, askDelete(String)
+    case newSheet, newOnDate(String), chooseNewDate, newPinned(String), duplicate, deleteSheet(String)
     case rename(String), moveSheet(String), chooseSheetDate, addTag(String), removeTag(String)
     case export, importArchive, copyImage, copyTodos, copyEverything
     // Blocks
@@ -30,9 +30,14 @@ enum ScratchpadCommand: Equatable {
     case font(String, String), fontSize(String, Int), bold(String, Bool), italic(String, Bool)
     case addRow(String), addColumn(String), removeRow(String), removeColumn(String)
     case openLink(String), nudge(String, dx: Int, dy: Int), widen(String, Int)
+    // Typing on a block from the keyboard: the caret into it (↩), or its words changed in the menu
+    case editBlock(String), editCell(String, row: Int, col: Int), setText(String, String)
+    case setCell(String, row: Int, col: Int, String), linkTitle(String, String), linkURL(String, String)
+    case copyLink(String), openFile(String), heighten(String, Int), fitHeight(String), widenColumn(String, col: Int, by: Int)
     // To-dos
     case todos(Bool), addTodo(String), status(String, String), reorderTodo(String, TodoMove)
     case todoToSheet(String, String), deleteTodo(String), todoSort(String), doneSinks(Bool)
+    case renameTodo(String, String), todoToBlock(String)
     // Settings
     case appearance(String), defaultFont(String), animation(String), newSheetEachDay(Bool)
     case undo
@@ -49,6 +54,8 @@ struct ScratchpadCommandState: Equatable {
         /// Its date, or "Pinned".
         var detail: String?
         var tags: [String] = []
+        /// "3 blocks and 2 to-dos", for the question before it's deleted.
+        var contents: String?
     }
 
     struct Todo: Equatable {
@@ -72,6 +79,14 @@ struct ScratchpadCommandState: Equatable {
         var rows = 0
         var cols = 0
         var url: String?
+        /// A text or code block's words; a link's title.
+        var text: String?
+        /// A table's cells as typed (formulas as written), row by row.
+        var cells: [[String]] = []
+        /// Its height when one has been set; nil when it fits its contents.
+        var height: Int?
+        /// Its table's column widths.
+        var widths: [Int] = []
     }
 
     /// Where the to-do list goes on this screen: a sheet over the phone, a column sliding over a narrow sheet, or a
@@ -91,6 +106,10 @@ struct ScratchpadCommandState: Equatable {
     var undo: String?
 
     var searchText = ""
+    /// The menu is drawn on the monitor: what only the phone can show is offered another way there.
+    var monitorShows = false
+    /// "iCloud Drive" or "This device", for Settings.
+    var storePlace = ""
     var railMode = "byDay"
     var tagSort = "alphabetical"
     /// The sheet list sits beside the sheet (iPad), rather than being a screen of its own (phone).
@@ -189,17 +208,19 @@ struct ScratchpadCommandList: CommandList {
                        step: .pick(CommandPick(prompt: "Which sheet? It asks first.",
                                                choices: state.sheets.map {
                                                    Row("delete." + $0.id, $0.title, detail: $0.detail, symbol: "trash",
-                                                       step: .run(.askDelete($0.id)), confirms: true, destructive: true)
+                                                       step: .confirm(deleteConfirm($0)), confirms: true, destructive: true)
                                                },
                                                nothing: "No sheet by that name.", searchable: false)),
                        confirms: true, synonyms: ["remove", "bin"], destructive: true))
         out += [
             Row("export", "Export…", detail: "Image, to-dos or everything, to a file", symbol: "square.and.arrow.up",
-                step: .run(.export), synonyms: ["save", "share", "png", "markdown", "archive", "backup"]),
+                step: .run(.export), synonyms: ["save", "share", "png", "markdown", "archive", "backup"],
+                onPhone: "Choose what to export and where to save it on the phone. The Copy commands work from here."),
             Row("copy.everything", "Copy every sheet as Markdown", symbol: "doc.on.doc", step: .run(.copyEverything),
                 synonyms: ["export", "clipboard", "all"]),
             Row("import", "Import an archive…", detail: "From a file", symbol: "square.and.arrow.down",
-                step: .run(.importArchive), synonyms: ["restore", "backup", "open file"]),
+                step: .run(.importArchive), synonyms: ["restore", "backup", "open file"],
+                onPhone: "Choose the archive on the phone."),
         ]
         return out
     }
@@ -218,11 +239,28 @@ struct ScratchpadCommandList: CommandList {
         let calendar = Row("onDate.grid", "Choose on the calendar…", symbol: "calendar", step: .run(.chooseNewDate),
                            synonyms: ["grid", "month"])
         return Row("onDate", "New sheet on a date…", symbol: "calendar.badge.plus",
-                   step: .ask(CommandAsk(prompt: "When? today, fri, 15 oct, +3", suggestions: [calendar],
+                   step: .ask(CommandAsk(prompt: "When? today, fri, 15 oct, +3",
+                                         suggestions: state.monitorShows ? days("onDate.day", { .newOnDate($0) }) : [calendar],
                                          nothing: "Try today, tomorrow, fri, 15 oct, +3 or -2.",
                                          title: { Self.readDate($0).map { "New sheet on \($0.label)" } ?? "" },
                                          make: { Self.readDate($0).map { .newOnDate($0.key) } })),
                    synonyms: ["calendar", "day", "future"])
+    }
+
+    /// The month grid is a phone sheet, so on the monitor the next two weeks are offered instead.
+    private func days(_ id: String, _ action: (String) -> ScratchpadCommand) -> [Row] {
+        (0..<14).compactMap { n in
+            Self.readDate(n == 0 ? "today" : "+\(n)").map { day in
+                Row("\(id).\(n)", day.label, symbol: "calendar", step: .run(action(day.key)))
+            }
+        }
+    }
+
+    /// "Delete “Planning”?", asked in the menu, where the monitor shows it.
+    private func deleteConfirm(_ sheet: State.Sheet) -> CommandConfirm<ScratchpadCommand> {
+        CommandConfirm(prompt: "Delete “\(sheet.title)”?", title: "Delete “\(sheet.title)”",
+                       detail: (sheet.contents.map { "\($0) go for good. " } ?? "") + "This can’t be undone.",
+                       action: .deleteSheet(sheet.id))
     }
 
     private var railModePick: Row {
@@ -270,8 +308,8 @@ struct ScratchpadCommandList: CommandList {
                 synonyms: ["checklist", "clipboard", "export", "text"]),
             Row("duplicate", "Duplicate this sheet", symbol: "plus.square.on.square", step: .run(.duplicate),
                 synonyms: ["copy sheet", "clone"]),
-            Row("delete", "Delete this sheet", detail: "Asks first: “\(named)”", symbol: "trash",
-                step: .run(.askDelete(sheet.id)), confirms: true, synonyms: ["remove", "bin"], destructive: true),
+            Row("delete", "Delete this sheet…", detail: "Asks first: “\(named)”", symbol: "trash",
+                step: .confirm(deleteConfirm(sheet)), confirms: true, synonyms: ["remove", "bin"], destructive: true),
         ]
         return out
     }
@@ -280,7 +318,8 @@ struct ScratchpadCommandList: CommandList {
         let calendar = Row("sheet.date.grid", "Choose on the calendar…", symbol: "calendar", step: .run(.chooseSheetDate),
                            synonyms: ["grid", "month"])
         return Row("sheet.date", "Change the date…", detail: sheet.detail, symbol: "calendar",
-                   step: .ask(CommandAsk(prompt: "To when? today, fri, 15 oct, +3", suggestions: [calendar],
+                   step: .ask(CommandAsk(prompt: "To when? today, fri, 15 oct, +3",
+                                         suggestions: state.monitorShows ? days("sheet.date.day", { .moveSheet($0) }) : [calendar],
                                          nothing: "Try today, tomorrow, fri, 15 oct, +3 or -2.",
                                          title: { Self.readDate($0).map { "Move to \($0.label)" } ?? "" },
                                          make: { Self.readDate($0).map { .moveSheet($0.key) } })),
@@ -363,6 +402,13 @@ struct ScratchpadCommandList: CommandList {
             out.append(Row("todo.reopen", "Mark open", symbol: "circle", step: .run(.status(todo.id, "open")),
                            synonyms: ["untick", "undone", "reopen"], context: context))
         }
+        out.append(Row("todo.words", "Change its words…", symbol: "character.cursor.ibeam",
+                       step: .ask(CommandAsk(prompt: "The to-do", initial: todo.text, title: { "Change to “\($0)”" },
+                                             make: { t in
+                                                 let s = Self.trim(t)
+                                                 return s.isEmpty || s == todo.text ? nil : .renameTodo(todo.id, s)
+                                             })),
+                       synonyms: ["rename", "edit", "reword", "retype", "text"], context: context))
         let i = state.todos.firstIndex { $0.id == todo.id }
         if let i, i > 0 {
             out += [Row("todo.up", "Move up", symbol: "arrow.up", step: .run(.reorderTodo(todo.id, .up)),
@@ -384,6 +430,11 @@ struct ScratchpadCommandList: CommandList {
                                    step: .run(.todoToSheet(todo.id, $0.id)))
                            }, nothing: "No sheet by that name.", searchable: false)),
                            synonyms: ["send", "carry", "other sheet"], context: context))
+        }
+        if state.current != nil {
+            out.append(Row("todo.toBlock", "Put it on the sheet", detail: "As a text block", symbol: "rectangle.and.pencil.and.ellipsis",
+                           step: .run(.todoToBlock(todo.id)), synonyms: ["block", "canvas", "turn into block", "drag"],
+                           context: context))
         }
         out.append(Row("todo.delete", "Delete this to-do", symbol: "trash", step: .run(.deleteTodo(todo.id)),
                        synonyms: ["remove", "bin"], destructive: true, undoable: true, context: context))
@@ -425,9 +476,16 @@ struct ScratchpadCommandList: CommandList {
     private func commands(for b: State.Block) -> [Row] {
         let named = b.name
         var out: [Row] = []
+        out += editCommands(b, named)
         if b.kind == "link", let url = b.url, !url.isEmpty {
             out.append(Row("block.link", "Open the link", detail: url, symbol: "arrow.up.right.square", step: .run(.openLink(b.id)),
-                           synonyms: ["browser", "url", "visit"], context: named))
+                           synonyms: ["browser", "url", "visit"], context: named, onPhone: "The link opens on the phone."))
+            out.append(Row("block.copyLink", "Copy the link", detail: url, symbol: "link", step: .run(.copyLink(b.id)),
+                           synonyms: ["url", "clipboard", "address"], context: named))
+        }
+        if b.kind == "file" {
+            out.append(Row("block.file", "Open the file", symbol: "doc", step: .run(.openFile(b.id)),
+                           synonyms: ["show", "preview", "attachment"], context: named, onPhone: "The file opens on the phone."))
         }
         if b.kind == "table" {
             out += [Row("table.row", "Add a row", symbol: "plus.rectangle", step: .run(.addRow(b.id)), synonyms: ["table"], context: named),
@@ -470,6 +528,16 @@ struct ScratchpadCommandList: CommandList {
                 synonyms: ["resize", "bigger", "stretch"], context: named),
             Row("block.narrower", "Make it narrower", symbol: "arrow.right.and.line.vertical.and.arrow.left",
                 step: .run(.widen(b.id, -g * 2)), synonyms: ["resize", "smaller", "shrink"], context: named),
+            Row("block.taller", "Make it taller", detail: b.height.map { "Now \($0) pt" }, symbol: "arrow.up.and.down",
+                step: .run(.heighten(b.id, g * 2)), synonyms: ["resize", "height", "longer", "stretch"], context: named),
+        ]
+        if b.height != nil {
+            out += [Row("block.shorter", "Make it shorter", symbol: "arrow.down.and.line.horizontal.and.arrow.up",
+                        step: .run(.heighten(b.id, -g * 2)), synonyms: ["resize", "height", "squash"], context: named),
+                    Row("block.fit", "Fit its height to what’s in it", symbol: "arrow.up.and.down.text.horizontal",
+                        step: .run(.fitHeight(b.id)), synonyms: ["auto height", "resize", "reset height"], context: named)]
+        }
+        out += [
             Row("block.deselect", "Let go of the block", symbol: "cursorarrow.slash", step: .run(.deselect),
                 synonyms: ["deselect", "unselect"], context: named),
             Row("block.delete", "Delete the block", detail: "⌫", symbol: "trash", step: .run(.deleteBlock(b.id)),
@@ -477,6 +545,90 @@ struct ScratchpadCommandList: CommandList {
         ]
         return out
     }
+
+    /// Putting words on a block from the keyboard: the caret into it (↩, and Esc to stop), or the words typed in the menu.
+    private func editCommands(_ b: State.Block, _ named: String) -> [Row] {
+        var out: [Row] = []
+        switch b.kind {
+        case "text", "code":
+            out.append(Row("block.edit", "Edit the block", detail: "↩, then Esc when done", symbol: "character.cursor.ibeam",
+                           step: .run(.editBlock(b.id)), synonyms: ["type", "write", "caret", "focus", "edit text"], context: named))
+            let words = b.text ?? ""
+            out.append(Row("block.words", "Change its words…", symbol: "text.cursor",
+                           step: .ask(CommandAsk(prompt: "Its words", initial: words, title: { "Change to “\($0)”" },
+                                                 make: { $0 == words ? nil : .setText(b.id, $0) })),
+                           synonyms: ["rename", "retype", "replace text", "edit"], context: named))
+        case "link":
+            out.append(Row("block.edit", "Edit the link", detail: "↩, then Esc when done", symbol: "character.cursor.ibeam",
+                           step: .run(.editBlock(b.id)), synonyms: ["type", "write", "caret", "focus", "edit"], context: named))
+            let title = b.text ?? "", url = b.url ?? ""
+            out.append(Row("link.title", "Link title…", detail: title.isEmpty ? nil : title, symbol: "textformat",
+                           step: .ask(CommandAsk(prompt: "The link’s title", initial: title, title: { "Title it “\($0)”" },
+                                                 make: { t in let s = Self.trim(t); return s == title ? nil : .linkTitle(b.id, s) })),
+                           synonyms: ["name", "rename", "label"], context: named))
+            out.append(Row("link.url", "Link address…", detail: url.isEmpty ? nil : url, symbol: "link",
+                           step: .ask(CommandAsk(prompt: "https://", initial: url, title: { "Link to \($0)" },
+                                                 make: { t in let s = Self.trim(t); return s.isEmpty || s == url ? nil : .linkURL(b.id, s) })),
+                           synonyms: ["url", "web address", "href"], context: named))
+        case "table":
+            out.append(Row("table.edit", "Edit the table", detail: "↩ · Tab next cell · ↩ down · Esc when done",
+                           symbol: "character.cursor.ibeam", step: .run(.editCell(b.id, row: 0, col: 0)),
+                           synonyms: ["type", "write", "cell", "caret", "focus"], context: named))
+            out.append(cellPick(b, named))
+            if b.cols > 0 {
+                out.append(columnPick(b, named, wider: true))
+                out.append(columnPick(b, named, wider: false))
+            }
+        default: break
+        }
+        return out
+    }
+
+    /// "Change a cell…" › "B2  Total" › its contents typed, formula and all.
+    private func cellPick(_ b: State.Block, _ named: String) -> Row {
+        var choices: [Row] = []
+        for (r, row) in b.cells.enumerated() {
+            for c in 0..<max(b.cols, row.count) {
+                let raw = c < row.count ? row[c] : ""
+                let at = Self.cellName(r, c)
+                choices.append(Row("cell.\(r).\(c)", raw.isEmpty ? at : "\(at)  \(raw)", detail: raw.isEmpty ? "Empty" : nil,
+                                   symbol: "tablecells",
+                                   step: .ask(CommandAsk(prompt: "\(at): a value or =formula", initial: raw,
+                                                         title: { $0.isEmpty ? "Empty \(at)" : "\(at) is “\($0)”" },
+                                                         make: { $0 == raw ? nil : .setCell(b.id, row: r, col: c, $0) })),
+                                   synonyms: [at.lowercased()]))
+            }
+        }
+        return Row("table.cell", "Change a cell…", detail: "Its value or formula", symbol: "tablecells",
+                   step: .pick(CommandPick(prompt: "Which cell? A1, B2…", choices: choices, nothing: "No cell by that name.",
+                                           searchable: false)),
+                   synonyms: ["cell", "formula", "value", "type in table"], context: named)
+    }
+
+    private func columnPick(_ b: State.Block, _ named: String, wider: Bool) -> Row {
+        let by = wider ? State.grid * 2 : -State.grid * 2
+        let choices = (0..<b.cols).map { c in
+            Row("col.\(wider ? "w" : "n").\(c)", "Column \(Self.columnName(c))",
+                detail: c < b.widths.count ? "Now \(b.widths[c]) pt" : nil, symbol: "rectangle.split.3x1",
+                step: .run(.widenColumn(b.id, col: c, by: by)))
+        }
+        return Row(wider ? "table.colWider" : "table.colNarrower", wider ? "Widen a column…" : "Narrow a column…",
+                   symbol: wider ? "arrow.left.and.right" : "arrow.right.and.line.vertical.and.arrow.left",
+                   step: .pick(CommandPick(prompt: "Which column?", choices: choices, searchable: false)),
+                   synonyms: ["column width", "resize column"], context: named)
+    }
+
+    /// A, B … Z, AA: as the table's letters.
+    static func columnName(_ c: Int) -> String {
+        var n = c, out = ""
+        repeat {
+            out = String(UnicodeScalar(UInt8(65 + n % 26))) + out
+            n = n / 26 - 1
+        } while n >= 0
+        return out
+    }
+
+    static func cellName(_ r: Int, _ c: Int) -> String { "\(columnName(c))\(r + 1)" }
 
     /// Font, size, bold and italic, as the font panel has them. Arrowing through fonts and sizes shows each on the block.
     private func textCommands(_ b: State.Block, _ named: String) -> [Row] {
@@ -515,38 +667,35 @@ struct ScratchpadCommandList: CommandList {
 
     // MARK: Settings
 
+    /// Every setting is a command of its own (the kit's `CommandSettings`), so none needs the phone's Settings screen.
     private var settings: [Row] {
-        let looks = State.appearances.map { id, title in
-            Row("look." + id, title, symbol: "circle.lefthalf.filled", step: .run(.appearance(id)), preview: .appearance(id),
-                isCurrent: state.appearance == id)
+        func options(_ list: [(String, String)], _ symbol: String) -> [CommandOption] {
+            list.map { CommandOption($0.0, $0.1, symbol: symbol) }
         }
-        let fonts = State.fonts.map { id, title in
-            Row("newfont." + id, title, symbol: "textformat", step: .run(.defaultFont(id)), isCurrent: state.defaultFont == id)
+        var out = CommandSettings.rows([CommandSetting<ScratchpadCommand>]([
+            .choice("look", "Appearance", symbol: "circle.lefthalf.filled",
+                    options: options(State.appearances, "circle.lefthalf.filled"), current: state.appearance, previews: true,
+                    synonyms: ["theme", "dark mode", "light mode", "night", "colours", "colors"], set: { .appearance($0) }),
+            .choice("newfont", "Font for new blocks", symbol: "textformat", options: options(State.fonts, "textformat"),
+                    current: state.defaultFont, synonyms: ["default font", "typeface"], set: { .defaultFont($0) }),
+            .choice("motion", "Animation", symbol: "sparkles",
+                    options: State.animations.map { CommandOption($0.0, $0.1, detail: $0.2, symbol: "sparkles") },
+                    current: state.animation, synonyms: ["motion", "whimsy", "effects", "reduce motion"], set: { .animation($0) }),
+            .toggle("daily", "A new sheet each day", symbol: "sun.max", isOn: state.newSheetEachDay,
+                    synonyms: ["daily sheet", "new day", "today's sheet", "every day"], set: { .newSheetEachDay($0) }),
+        ]))
+        if state.reduceMotion, let i = out.firstIndex(where: { $0.id == "setting.motion" }) {
+            out[i].detail = "Off: Reduce Motion is on in system settings"
         }
-        let motions = State.animations.map { id, title, detail in
-            Row("motion." + id, title, detail: detail, symbol: "sparkles", step: .run(.animation(id)), isCurrent: state.animation == id)
-        }
-        return [
-            Row("look", "Appearance…", detail: Self.label(state.appearance, State.appearances), symbol: "circle.lefthalf.filled",
-                step: .pick(CommandPick(prompt: "Light or dark?", choices: looks, revert: .appearance(state.appearance))),
-                synonyms: ["theme", "dark mode", "light mode", "night", "colours", "colors"]),
-            Row.toggle("look.dark", isOn: state.dark, turnOn: "Switch to dark", turnOff: "Switch to light",
-                       states: ("Dark", "Light"), symbol: state.dark ? "sun.max" : "moon", action: .appearance(state.dark ? "light" : "dark"),
-                       synonyms: ["dark mode", "light mode", "night", "theme"]),
-            Row("newfont", "Font for new blocks…", detail: Self.label(state.defaultFont, State.fonts), symbol: "textformat",
-                step: .pick(CommandPick(prompt: "New text blocks start in", choices: fonts)),
-                synonyms: ["default font", "typeface"]),
-            Row("motion", "Animation…", detail: state.reduceMotion ? "Off: Reduce Motion is on in system settings"
-                                                                    : Self.label(state.animation, State.animations.map { ($0.0, $0.1) }),
-                symbol: "sparkles", step: .pick(CommandPick(prompt: "How much movement?", choices: motions)),
-                synonyms: ["motion", "whimsy", "effects", "reduce motion"]),
-            Row.toggle("daily", isOn: state.newSheetEachDay, turnOn: "Make a new sheet each day",
-                       turnOff: "Stop making a new sheet each day", states: ("New sheet each day", "Only when you choose New"),
-                       symbol: "sun.max", action: .newSheetEachDay(!state.newSheetEachDay),
-                       synonyms: ["daily sheet", "new day", "today's sheet", "every day"]),
-            Row("settings", "Settings", detail: "Where your sheets are kept", symbol: "gearshape", step: .run(.settings),
-                synonyms: ["preferences", "options", "icloud", "store"]),
-        ]
+        out.insert(Row.toggle("look.dark", isOn: state.dark, turnOn: "Switch to dark", turnOff: "Switch to light",
+                              states: ("Dark", "Light"), symbol: state.dark ? "sun.max" : "moon",
+                              action: .appearance(state.dark ? "light" : "dark"),
+                              synonyms: ["dark mode", "light mode", "night", "theme"]), at: 1)
+        out.append(Row("settings", "Settings", detail: state.storePlace.isEmpty ? "Where your sheets are kept"
+                                                                               : "Sheets are kept in: \(state.storePlace)",
+                       symbol: "gearshape", step: .run(.settings), synonyms: ["preferences", "options", "icloud", "store"],
+                       onPhone: "Settings are open on the phone. Each setting is in ⌘K too: type “setting”."))
+        return out
     }
 
     // MARK: Words

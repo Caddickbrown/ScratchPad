@@ -46,7 +46,33 @@ struct RootView: View {
             ScratchpadCommandMenu.watch(state)
         }
         .onChange(of: compact, initial: true) { _, c in ScratchpadCommandMenu.compact = c }
-        .background { MonitorEscape(stepBack: stepBack, deleteBlock: deleteSelectedBlock) }
+        .background {
+            MonitorEscape(stepBack: stepBack, deleteBlock: deleteSelectedBlock, keys: MonitorKeys(
+                edit: editSelectedBlock,
+                undo: { if !CommandNotices.shared.undoLatest() { runCommand(.undo) } },
+                move: { dx, dy in if let id = state.selectedBlockID { runCommand(.nudge(id, dx: dx, dy: dy)) } },
+                resize: { dw, dh in
+                    guard let id = state.selectedBlockID else { return }
+                    if dw != 0 { runCommand(.widen(id, dw)) }
+                    if dh != 0 { runCommand(.heighten(id, dh)) }
+                },
+                addTodo: addTodoFromKeyboard))
+        }
+        // What a command did, on the monitor too (the phone keeps its own toast): results, Undo for ⌘Z, failures.
+        .onChange(of: state.notice) { _, notice in
+            if let notice, MonitorModel.shared.isConnected { CommandNotices.shared.say(notice) }
+        }
+        .onChange(of: state.sheetUndo?.token) { _, token in
+            guard token != nil, let undo = state.sheetUndo, MonitorModel.shared.isConnected else { return }
+            CommandNotices.shared.undoable(undo.done) { animate(motion.fall) { state.undoSheetChange() } }
+        }
+        .onChange(of: state.deleted?.token) { _, token in
+            guard token != nil, let d = state.deleted, MonitorModel.shared.isConnected else { return }
+            CommandNotices.shared.undoable("\(d.block.kind.label) block deleted") { animate(motion.fall) { state.undoDelete() } }
+        }
+        .onChange(of: state.error) { _, error in
+            if let error, MonitorModel.shared.isConnected { CommandNotices.shared.fail("Something went wrong", detail: error) }
+        }
         .onChange(of: compact && phonePath.isEmpty, initial: true) { _, home in MonitorModel.shared.atHome = home }
         .onChange(of: scheme, initial: true) { _, s in MonitorModel.shared.colorScheme = s }
         .onChange(of: sizeClass) { _, newValue in
@@ -190,8 +216,12 @@ struct RootView: View {
         case .chooseNewDate: state.askingNewOnDate = true
         case .newPinned(let title): animate(motion.peel) { state.newPinnedSheet(title: title) }
         case .duplicate: animate(motion.peel) { state.duplicateCurrent() }
-        case .askDelete(let id):
-            state.confirmingDelete = state.current?.id == id ? state.current : state.pads.first { $0.id == id }
+        case .deleteSheet(let id):
+            // Asked in the menu already (its confirm step), so no alert.
+            let name = state.pads.first { $0.id == id }?.displayTitle ?? "the sheet"
+            if phonePath.contains(id) { phonePath = [] }
+            animate(motion.delete) { state.deleteSheet(id) }
+            if state.error == nil { state.notice = "Deleted “\(name)”" }
         case .rename(let title): state.current?.title = title
         case .moveSheet(let day): state.moveCurrent(to: day)
         case .chooseSheetDate: state.openHeaderPopover(.date)
@@ -216,7 +246,13 @@ struct RootView: View {
             state.notice = "Copied \(state.pads.count) sheet\(state.pads.count == 1 ? "" : "s") as Markdown"
 
         // Blocks
-        case .insert(let kind): if let k = BlockKind(rawValue: kind) { insertBlock(k) }
+        case .insert(let kind):
+            guard let k = BlockKind(rawValue: kind) else { break }
+            insertBlock(k)
+            // With the monitor up there's no tap to start typing, so a block for words starts with the caret in it.
+            if MonitorModel.shared.isConnected, [.text, .code, .link, .table].contains(k), let id = state.selectedBlockID {
+                editBlock(id)
+            }
         case .paste:
             let contents = PasteBridge.read()
             animate(motion.fall) { state.paste(contents, font: defaultFont) }
@@ -238,6 +274,20 @@ struct RootView: View {
             if let raw = state.block(id)?.url, let url = URL(string: raw.contains("://") ? raw : "https://" + raw) { openURL(url) }
         case .nudge(let id, let dx, let dy): state.nudgeBlock(id, dx: dx, dy: dy)
         case .widen(let id, let by): state.widenBlock(id, by: by)
+        case .editBlock(let id): editBlock(id)
+        case .editCell(let id, let r, let c): editField(id, Caret.cell(id, r, c))
+        case .setText(let id, let text): state.mutate(id) { $0.text = text }
+        case .setCell(let id, let r, let c, let text): state.setTableCell(id, row: r, col: c, text)
+        case .linkTitle(let id, let title): state.mutate(id) { $0.text = title }
+        case .linkURL(let id, let url): state.mutate(id) { $0.url = url }
+        case .copyLink(let id):
+            guard let url = state.block(id)?.url, !url.isEmpty else { return }
+            Clipboard.copyText(url)
+            state.notice = "Copied the link"
+        case .openFile(let id): if let a = state.block(id)?.asset { PlatformOpen.reveal(state.store.assetURL(a)) }
+        case .heighten(let id, let by): state.heightenBlock(id, by: by)
+        case .fitHeight(let id): state.mutate(id) { $0.h = nil }
+        case .widenColumn(let id, let c, let by): state.widenTableColumn(id, col: c, by: by)
 
         // To-dos
         case .todos(let show):
@@ -258,6 +308,14 @@ struct RootView: View {
             if state.moveTodo(id, toSheet: sheetID) { state.notice = "Moved to \(name)" }
             else if state.error == nil { state.notice = "Couldn’t move it to \(name)" }
         case .deleteTodo(let id): state.deleteTodo(id)
+        case .renameTodo(let id, let text): state.renameTodo(id, text)
+        case .todoToBlock(let id):
+            guard let pad = state.current else { return }
+            let font = BlockFont(rawValue: UserDefaults.standard.string(forKey: SettingsKey.defaultFont) ?? "") ?? .sans
+            let at = Placement.nextFreePoint(on: pad, within: state.monitorPaper?.sheetID == pad.id ? state.monitorPaper?.width : nil,
+                                             blockWidth: TodoDrag.blockWidth)
+            animate(motion.fall) { state.todoToBlock(id, at: CGPoint(x: at.x, y: at.y), font: font) }
+            state.notice = "On the sheet as a text block"
         case .todoSort(let m): if let mode = TodoSortMode(rawValue: m) { todoSort = mode }
         case .doneSinks(let on): doneSinks = on
 
@@ -271,6 +329,37 @@ struct RootView: View {
         case .undo:
             if state.sheetUndo != nil { state.undoSheetChange() } else { animate(motion.fall) { state.undoDelete() } }
         }
+    }
+
+    /// The caret into a block, by ⌘K or ↩: a text or code block's words, a link's title, a table's first cell.
+    private func editBlock(_ id: String) {
+        guard let b = state.block(id) else { return }
+        switch b.kind {
+        case .text, .code: editField(id, id)
+        case .link: editField(id, Caret.linkTitle(id))
+        case .table: editField(id, Caret.cell(id, state.tableCell[id]?.r ?? 0, state.tableCell[id]?.c ?? 0))
+        default: break
+        }
+    }
+
+    /// The sheet on screen and the block selected, then the caret into `field`.
+    private func editField(_ blockID: String, _ field: String) {
+        if compact, phonePath.isEmpty, let id = state.current?.id { phonePath = [id] }
+        state.selectBlock(blockID)
+        state.requestFocus(field)
+    }
+
+    /// ⇧⌘T from anywhere: the to-dos shown and the caret in the blank row.
+    private func addTodoFromKeyboard() {
+        guard state.current != nil else { return }
+        runCommand(.todos(true))
+        state.requestFocus(Caret.todo(state.blankTodoID))
+    }
+
+    /// ↩ with a block selected and nothing being typed in.
+    private func editSelectedBlock() {
+        guard !state.hasFrontmost, let id = state.selectedBlockID else { return }
+        editBlock(id)
     }
 
     /// The sheet list: the phone's first screen, or the iPad's sidebar.

@@ -42,9 +42,23 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
 - **The phone stays awake** while a monitor is attached.
 - **⌘K is the command menu.** From anywhere, monitor or not, typing included: the sheet list, Today,
   Settings, new sheets, inserting a block, the to-dos, export. Type a few letters, ↵ to go, esc to
-  close and give the caret back. Delete this sheet raises the usual alert. The monitor has no hint
-  bar, so the menu shows its own keys there. `CommandMenu.swift`; the list is tested by
-  `apple/Tests/commands-check/run.sh`.
+  close and give the caret back. Deleting a sheet asks in the menu (a red confirm step), so the question
+  shows on the monitor. `CommandMenu.swift`; the list is tested by `apple/Tests/commands-check/run.sh`.
+- **Every phone action from the keyboard (18 Nov, App Kit 0.9).**
+  - Typing: ↩ on a selected block (or ⌘K "Edit the block") puts the caret in it; a text, code, link or table
+    block inserted from ⌘K with the monitor up starts with the caret in it. Esc stops typing. In a table, Tab and
+    ⇧Tab go along the cells and ↩ goes down a row (↩ only with a hardware keyboard, so the phone's own keyboard
+    is as before). Without the caret: "Change its words…" (a text or code block, a to-do), "Change a cell…"
+    (pick a cell, type its value or formula), "Link title…", "Link address…", all typed in the menu.
+  - Moving and sizing: ⌥ and the arrows nudge the selected block, ⇧⌥ and the arrows resize it; ⌘K "Make it
+    taller/shorter", "Fit its height…", "Widen/Narrow a column…".
+  - To-dos: ⇧⌘T from anywhere adds one; "A to-do…" › "Change its words…" and "Put it on the sheet".
+  - Dates: on the monitor "Choose on the calendar…" (a phone sheet) is replaced by the next fourteen days.
+  - What needs the phone (Export…, Import an archive…, Settings, Open the link, Open the file) says so on the
+    monitor ("Finish on the phone"). Every setting is its own command: type "setting".
+  - The monitor draws a hint bar of the keys that work now, the kit's notices above it (what a command did,
+    failures, and Undo, which ⌘Z runs), an accent bar on the block, cell or to-do being typed in, the to-dos in
+    the phone's sort, and the sheet list grouped as the rail is, with the search words.
 - **Esc goes home.** With a keyboard on the phone, monitor or not, each Esc takes one step towards
   the sheet list, from anywhere: a dialog, popover, picker or sheet closes first, then the caret
   leaves the text, then the block is deselected, then the sheet closes, then the search clears.
@@ -64,7 +78,9 @@ Code: `apple/Sources/ScratchpadApp/MonitorDisplay.swift`. Modelled on Pigeon's d
 
 - Tap a mini-map on the phone to send the window to a spot.
 - Pinch the phone to zoom, which resizes the window.
-- Show the caret on the monitor, not just the selected block.
+- Draw the caret itself on the monitor (today it marks the block, cell or to-do being typed in).
+- Export straight to a file from the monitor: the app's folder isn't in Files (no `UIFileSharingEnabled`), so
+  Export… finishes on the phone; the Copy commands work from the monitor.
 - The phone measures a text block's editor as far taller than its text (`CanvasView.heights`), so
   its canvas scrolls on past the content and its selection outline and landing guide run long. The
   monitor measures its own blocks to stay clear of this, but the phone still has it.
