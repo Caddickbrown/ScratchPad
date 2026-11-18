@@ -21,6 +21,20 @@ Rules (kit/specs/ explains each):
                       phone, or say where its monitor version is with a comment on the line
                       or just above: `// monitor-alt: "Browse a category…" pick`.
                       specs/PALETTE.md, "Nothing hidden on the monitor".
+    text-caret        a caret typed into the text ("|" or "▏" in a Text or string) — a warning. It takes
+                      a letter's advance (a whole em for "▏", from the fallback font), so there's a gap
+                      beside it. Draw it: a 2-point Rectangle next to the Text. `// caret-ok` on the line
+                      for one that's kerned back to no width.
+    ats-arbitrary     NSAllowsArbitraryLoads in an Info.plist or project.yml — a warning. Use
+                      NSAllowsLocalNetworking and exception domains for the home server.
+    plist-version     a literal CFBundleShortVersionString or CFBundleVersion — a warning. Use
+                      $(MARKETING_VERSION) and $(CURRENT_PROJECT_VERSION) so one bump reaches every target.
+    any-certificate   a URLSession delegate that hands back URLCredential(trust:) with no check in the
+                      file (no SecTrustEvaluateWithError, no pin compared) — a warning.
+    apple-double      a "._" file (an exFAT or network disk's resource fork) in the tree — a warning;
+                      codesign and Xcode's copy phases fail on them.
+
+GUIDE.md's "Recurring issues" has the story behind each.
 
 Paths to skip go in an optional kit.config.json at the repo root:
     {"exclude": ["sketches/", "docs/prototypes/"]}
@@ -33,6 +47,7 @@ import re
 import sys
 
 ALWAYS_SKIP = {".git", "node_modules", "dist", "build", "vendor", "Vendor", ".build", "DerivedData", "kit"}
+CONFIG_SUFFIXES = {".plist", ".yml", ".yaml"}
 WEB_SUFFIXES = {".html", ".css", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".vue", ".svelte"}
 
 OUTSIDE_FONT = re.compile(r"fonts\.(googleapis|gstatic)\.com")
@@ -52,6 +67,14 @@ MONITOR_HIDDEN = re.compile(
 # A file that builds palette rows: it lists a CommandList or makes rows.
 BUILDS_ROWS = re.compile(r":\s*CommandList\b|\bCommandRow(?:<[^>]*>)?\s*\(|\bRow(?:\.toggle)?\(")
 MONITOR_ALT = re.compile(r"monitor-alt:|\bonPhone:")
+TEXT_CARET = re.compile(r'"[^"\n]*▏[^"\n]*"|\b(?:Text|AttributedString)\(\s*"\|"\s*\)|\?\s*"\|"\s*:\s*""')
+CARET_OK = re.compile(r"caret-ok")
+ATS_ARBITRARY = re.compile(r"NSAllowsArbitraryLoads(?:</key>\s*<true\s*/>|\s*:\s*(?:true|YES|yes)\b)")
+PLIST_VERSION = re.compile(r"(CFBundleShortVersionString|CFBundleVersion)"
+                           r"(?:</key>\s*<string>|\s*:\s*[\"']?)\s*\d")
+ANY_CERT = re.compile(r"URLCredential\(\s*trust:")
+CERT_CHECKED = re.compile(r"SecTrustEvaluate|SecCertificateCopyData|SecTrustCopyCertificateChain|"
+                          r"SecTrustCopyKey|pinned|[Pp]in(?:s|ned)?\b.*==")
 
 
 def files(root: pathlib.Path, exclude: list[str]):
@@ -76,6 +99,24 @@ def check(root: pathlib.Path) -> list[tuple[str, str, str]]:
 
     for path, rel in files(root, exclude):
         suffix = path.suffix
+        if path.name.startswith("._"):
+            findings.append(("warning", str(rel), "apple-double: a resource-fork file from an exFAT or network "
+                             "disk; build on APFS (an APFS disk image on the SSD) and move these to the Trash"))
+            continue
+        if suffix in CONFIG_SUFFIXES:
+            try:
+                text = path.read_text()
+            except (UnicodeDecodeError, OSError):
+                continue
+            for m in ATS_ARBITRARY.finditer(text):
+                findings.append(("warning", f"{rel}:{text.count(chr(10), 0, m.start()) + 1}",
+                                 "ats-arbitrary: NSAllowsArbitraryLoads sends the token in the clear to any host; "
+                                 "use NSAllowsLocalNetworking and exception domains"))
+            for m in PLIST_VERSION.finditer(text):
+                findings.append(("warning", f"{rel}:{text.count(chr(10), 0, m.start()) + 1}",
+                                 f"plist-version: a literal {m[1]}; use $(MARKETING_VERSION) / "
+                                 "$(CURRENT_PROJECT_VERSION)"))
+            continue
         if suffix not in WEB_SUFFIXES and suffix != ".swift":
             continue
         try:
@@ -109,7 +150,16 @@ def check(root: pathlib.Path) -> list[tuple[str, str, str]]:
         if suffix == ".swift":
             if SWIFT_REDUCED.search(text):
                 swift_reduced = True
+            cert_checked = bool(CERT_CHECKED.search(text))
             for n, line in enumerate(lines, 1):
+                if TEXT_CARET.search(line.split("//", 1)[0]) and not CARET_OK.search(line):
+                    findings.append(("warning", f"{rel}:{n}",
+                                     "text-caret: a caret typed into the text takes a letter's width and leaves "
+                                     "a gap; draw a 2-point Rectangle beside the Text"))
+                if ANY_CERT.search(line) and not cert_checked:
+                    findings.append(("warning", f"{rel}:{n}",
+                                     "any-certificate: URLCredential(trust:) with no check in this file accepts "
+                                     "any certificate; evaluate the trust or compare the pinned certificate"))
                 if SWIFT_MOTION.search(line):
                     swift_motion.append(f"{rel}:{n}")
                 if SYSTEM_SIZE.search(line):

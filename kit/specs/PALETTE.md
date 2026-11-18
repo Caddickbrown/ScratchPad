@@ -202,6 +202,7 @@ CommandResponders.install()
 
 ## Drawing the panel
 
+- The box: `menu.query`, then a caret, then `menu.prompt` while the query is empty. Draw the caret as a shape beside the `Text` (a 2-point `Rectangle` a line high, the Sample's `Caret`), never as `"|"` or `"▏"` in the string: a typed caret takes a letter's width and leaves a gap beside it on the monitor. `kit_check` warns `text-caret` (0.9.1). The typed text doesn't animate.
 - `menu.sections`: draw each `title` as a small heading when it isn't nil. `menu.rows` is the same rows flat.
 - A row: `symbol`, `title` (red when `destructive`), `detail`, `state` for toggles, a tick for `isCurrent`, a chevron when `leads`.
 - The box: `menu.opener?.title` before the query when a step is open ("Theme…"), `menu.query`, and `menu.prompt` when it's empty.

@@ -255,14 +255,18 @@ struct ScratchpadCommandPanel: View {
             if let opener = menu.opener {
                 Text(opener.title).font(Fonts.ui(18 * z, .medium)).foregroundStyle(p.accent).lineLimit(1).fixedSize()
             }
-            HStack(spacing: 1 * z) {
+            // The caret is drawn, not typed: a "▏" or "|" in the text takes a letter's advance,
+            // which left a gap beside it on the monitor. App Kit 0.9.1, GUIDE.md, Recurring issues.
+            HStack(spacing: 0) {
                 if !menu.query.isEmpty {
                     Text(menu.query).font(Fonts.ui(20 * z)).foregroundStyle(p.ink)
                         .lineLimit(1).truncationMode(.head)
                 }
-                Text("|").font(Fonts.ui(20 * z)).foregroundStyle(p.accent)
+                DrawnCaret(font: Fonts.ui(20 * z), color: p.accent, width: max(1, 2 * z))
+                    .padding(.leading, menu.query.isEmpty ? 0 : 1)
                 if menu.query.isEmpty {
                     Text(menu.prompt).font(Fonts.ui(20 * z)).foregroundStyle(p.muted).lineLimit(1)
+                        .padding(.leading, 2 * z)
                 }
             }
             Spacer(minLength: 0)
@@ -365,4 +369,18 @@ private struct ScratchpadCommandRow: View {
     }
 }
 
+/// The palette's caret, drawn: a bar one line high in the field's font (the hidden "Ag" sets the
+/// height), so there's no letter's advance beside it. App Kit's Sample, Commands/CommandMenu.swift.
+struct DrawnCaret: View {
+    let font: Font
+    let color: Color
+    var width: CGFloat = 2
+
+    var body: some View {
+        Text("Ag").font(font).hidden()
+            .frame(width: width)
+            .overlay(Rectangle().fill(color))
+            .accessibilityHidden(true)
+    }
+}
 #endif
