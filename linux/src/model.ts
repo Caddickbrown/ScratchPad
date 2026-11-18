@@ -108,10 +108,26 @@ export function normalizeTag(t: string): string {
   return t.trim().replace(/^#+/, "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
 }
 
-export function newSheet(date: string | null, opts: Partial<Pad> = {}): Pad {
+/** `id`, or `id-2`, `id-3`… when that is taken. `taken` holds ids, or store file names ("<id>.json"). */
+export function freeSheetId(id: string, taken: Iterable<string>): string {
+  const used = new Set([...taken].map((t) => t.replace(/\.json$/, "")));
+  if (!used.has(id)) return id;
+  let n = 2;
+  while (used.has(`${id}-${n}`)) n++;
+  return `${id}-${n}`;
+}
+
+/** A new sheet. Pass every id already in the store, readable or not, as `taken`: an undated
+ *  sheet is named after its title, so a duplicate ("Ideas copy" twice) would otherwise be written
+ *  over the first. */
+export function newSheet(date: string | null, opts: Partial<Pad> = {}, taken: Iterable<string> = []): Pad {
   const now = new Date().toISOString();
+  const used = [...taken];
+  let id = date ? newSheetId(date) : slugify(opts.title ?? "");
+  if (date) while (used.includes(id)) id = newSheetId(date);
+  else id = freeSheetId(id, used);
   return {
-    v: 2, id: date ? newSheetId(date) : slugify(opts.title ?? ""), date, title: "", tags: [], pinned: date === null,
+    v: 2, id, date, title: "", tags: [], pinned: date === null,
     createdAt: now, updatedAt: now, blocks: [], todos: [], ...opts,
   };
 }

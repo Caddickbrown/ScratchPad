@@ -7,6 +7,9 @@ import {
 
 const sample = (name: string) => JSON.parse(readFileSync(new URL(`../../../shared/samples/${name}`, import.meta.url), "utf8"));
 const todo = (id: string, status: Todo["status"] = "open", createdAt = "2026-10-12T00:00:00Z"): Todo => ({ id, text: id, status, createdAt });
+// The clock the fixtures were written against. Overdue depends on "now", so the sort tests pass it
+// in rather than reading the real date (a fixed createdAt went overdue on 15 Oct and broke CI).
+const NOW = Date.parse("2026-10-12T12:00:00Z");
 const sheet = (date: string | null, o: Partial<Pad> = {}): Pad => newSheet(date, { updatedAt: `${date ?? "2026-01-01"}T10:00:00Z`, ...o });
 
 describe("format", () => {
@@ -20,6 +23,15 @@ describe("format", () => {
     const p = migrate(sample("sheet-v2.json"));
     expect(p.tags).toEqual(["work", "q4"]);
     expect(p.blocks.find((b) => b.font === "hand")?.rotation).toBe(2.5);
+  });
+  it("never gives a new or duplicated sheet an id that is taken (928baea, on Linux too)", () => {
+    expect(newSheet(null, { title: "Ideas copy" }).id).toBe("ideas-copy");
+    expect(newSheet(null, { title: "Ideas copy" }, ["ideas-copy"]).id).toBe("ideas-copy-2");
+    expect(newSheet(null, { title: "Ideas copy" }, new Set(["ideas-copy", "ideas-copy-2"])).id).toBe("ideas-copy-3");
+    // A taken name that won't read still counts: the store lists it as "<id>.json".
+    expect(newSheet(null, { title: "Ideas" }, ["ideas.json"]).id).toBe("ideas-2");
+    const dated = newSheet("2026-10-12", {}, ["2026-10-12-aaaaaa"]);
+    expect(dated.id).toMatch(/^2026-10-12-[0-9a-z]{6}$/);
   });
   it("makes dated ids and normalises tags and angles", () => {
     expect(newSheetId("2026-10-12")).toMatch(/^2026-10-12-[0-9a-z]{6}$/);
@@ -39,13 +51,13 @@ describe("todos", () => {
   });
   it("sorts with done sinking in every mode", () => {
     const t = [todo("b", "done"), todo("c"), todo("a", "deferred")];
-    expect(sortTodos(t, "manual", true).map((x) => x.id)).toEqual(["c", "a", "b"]);
-    expect(sortTodos(t, "manual", false).map((x) => x.id)).toEqual(["b", "c", "a"]);
-    expect(sortTodos(t, "az", false).map((x) => x.id)).toEqual(["a", "b", "c"]);
-    expect(sortTodos(t, "open", false).map((x) => x.id)).toEqual(["c", "a", "b"]);
+    expect(sortTodos(t, "manual", true, NOW).map((x) => x.id)).toEqual(["c", "a", "b"]);
+    expect(sortTodos(t, "manual", false, NOW).map((x) => x.id)).toEqual(["b", "c", "a"]);
+    expect(sortTodos(t, "az", false, NOW).map((x) => x.id)).toEqual(["a", "b", "c"]);
+    expect(sortTodos(t, "open", false, NOW).map((x) => x.id)).toEqual(["c", "a", "b"]);
     const old = { ...todo("old"), createdAt: "2020-01-01T00:00:00Z" };
-    expect(sortTodos([todo("new"), old], "overdue", true)[0].id).toBe("old");
-    expect(sortTodos([todo("new"), old], "oldest", true)[0].id).toBe("old");
+    expect(sortTodos([todo("new"), old], "overdue", true, NOW)[0].id).toBe("old");
+    expect(sortTodos([todo("new"), old], "oldest", true, NOW)[0].id).toBe("old");
   });
   it("moves a row before another or to the end", () => {
     const t = [todo("a"), todo("b"), todo("c")];

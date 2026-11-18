@@ -13,10 +13,12 @@ export interface Prefs {
   sink: boolean;
   defaultFont: FontFamily;
   railOpen: boolean;
+  /** Settings' "New sheet each day", off by default as on Apple (dac1bef). */
+  newSheetEachDay: boolean;
 }
 
 const KEY = "scratchpad.prefs";
-const defaults: Prefs = { appearance: "system", whimsy: "full", groupBy: "day", tagSort: "az", todoSort: "manual", sink: true, defaultFont: "sans", railOpen: true };
+const defaults: Prefs = { appearance: "system", whimsy: "full", groupBy: "day", tagSort: "az", todoSort: "manual", sink: true, defaultFont: "sans", railOpen: true, newSheetEachDay: false };
 
 function load(): Prefs {
   try { return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") }; } catch { return { ...defaults }; }

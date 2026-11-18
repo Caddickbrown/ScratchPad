@@ -20,7 +20,7 @@ import { applyAppearance, applyWhimsy } from "./motion";
 import { classify, fromDataTransfer, type ClipboardContents } from "./paste";
 import { prefs, setPref, type Appearance } from "./prefs";
 import { renderRail } from "./sidebar";
-import { cameBack, duplicateSheet, flush, newSheetOn, newSheetToday, openToday, state, view } from "./state";
+import { cameBack, duplicateSheet, flush, newSheetOn, newSheetToday, openStart, state, view } from "./state";
 import { focusBlank, renderTodos } from "./todos";
 import { $, editing, el, I, menu, toast } from "./ui";
 
@@ -154,7 +154,7 @@ window.addEventListener("focus", () => { if (state.current) cameBack(); });
   window.addEventListener("unhandledrejection", (e) => api.log(`rejection: ${e.reason}`));
   api.log("boot");
   try {
-    await openToday();
+    await openStart();
     api.log(`opened ${state.current?.id}`);
     await wireTauriDrop();
     const unreadable = await api.unreadablePads();

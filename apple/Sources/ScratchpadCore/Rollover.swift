@@ -59,4 +59,19 @@ public enum Resume {
     public static func latest(among pads: [Pad]) -> Pad? {
         pads.max { ($0.updatedAt, $1.id) < ($1.updatedAt, $0.id) }
     }
+
+    public enum Today: Equatable, Sendable {
+        case open(String)
+        /// Make today's sheet (with carry-over), as each morning does when "New sheet each day" is on.
+        case makeToday
+        /// No sheet for today and none is made unasked: say so, and New makes one.
+        case noSheet
+    }
+
+    /// ⌘K "Today": today's sheet if there is one (the one last changed), and a new one only when the
+    /// app makes one each day (dac1bef: otherwise only New makes a sheet).
+    public static func today(among pads: [Pad], today: String, newSheetEachDay: Bool) -> Today {
+        if let p = latest(among: pads.filter { $0.date == today }) { return .open(p.id) }
+        return newSheetEachDay ? .makeToday : .noSheet
+    }
 }

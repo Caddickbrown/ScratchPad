@@ -221,6 +221,9 @@ export function openSettings(anchor: HTMLElement): void {
     el("p", { class: "hint" }, "Your system's Reduce motion setting turns whimsy off."),
     el("label", { class: "field" }, el("span", {}, "Default font for new text"), el("select", { onChange: (e: Event) => setPref("defaultFont", (e.target as HTMLSelectElement).value as FontFamily) },
       ...fonts.map((f) => el("option", { value: f.value, selected: prefs.defaultFont === f.value || null }, f.label)))),
+    el("label", { class: "field" }, el("span", {}, "New sheet each day"),
+      el("input", { type: "checkbox", checked: prefs.newSheetEachDay, onChange: (e: Event) => setPref("newSheetEachDay", (e.target as HTMLInputElement).checked) })),
+    el("p", { class: "hint" }, "On: each morning opens a sheet for today, with yesterday's open to-dos carried over. Off: the app opens the sheet you had."),
     el("div", { class: "sep" }),
     el("button", { class: "ghost wide", onClick: importArchive }, "Import archive…"),
     el("div", { class: "field" }, el("span", {}, "Stored in"), root));

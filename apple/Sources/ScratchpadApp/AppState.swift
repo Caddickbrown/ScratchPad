@@ -14,6 +14,8 @@ struct DeletedBlock: Equatable {
 /// row), for the undo toast.
 struct SheetUndo: Equatable {
     var before: Pad
+    /// The sheet just after the change: Undo only puts `before` back while it is still this.
+    var after: Pad
     /// What was done, for the toast: "#work removed".
     var done: String
     /// What Undo puts back, for the menu: "#work comes back".
@@ -47,7 +49,10 @@ final class AppState: ObservableObject {
     /// The open sheet. Edits save after a short debounce; switching sheets does not touch updatedAt.
     @Published var current: Pad? {
         didSet {
-            if let o = oldValue, let n = current, o.id == n.id, o != n { dirty = true; scheduleSave() }
+            if oldValue?.id != current?.id { base = current }  // another sheet opened: what it was on disk
+            if let o = oldValue, let n = current, o.id == n.id, o != n, !applyingSave { dirty = true; scheduleSave() }
+            // An edit after a ⌘K change makes its snapshot stale: Undo would throw the edit away.
+            if let undo = sheetUndo, current != undo.after { sheetUndo = nil }
         }
     }
     @Published var selectedBlockID: String?
@@ -117,6 +122,10 @@ final class AppState: ObservableObject {
     private(set) var store: PadStore
     private var saveTask: Task<Void, Never>?
     private var dirty = false
+    /// The open sheet as this device last read or wrote it, to see what another device changed since.
+    private var base: Pad?
+    /// Set while flush() puts the merged sheet back, which isn't a new edit.
+    private var applyingSave = false
 
     /// A line of status about the store: opening, downloading, or what couldn't be read.
     @Published private(set) var storeNotice: String?
@@ -157,8 +166,10 @@ final class AppState: ObservableObject {
         reload()
     }
 
-    /// The day this was last looked at, to notice a new one on coming back.
-    private lazy var lastToday = todayKey
+    /// The day this was last looked at, to notice a new one on coming back. Set at launch, not on first
+    /// use: a lazy value was first read on the first return from the background, so launching Monday
+    /// evening and coming back Tuesday saw no new day.
+    private var lastToday = DayKey.key(for: Date())
     /// When this device last wrote a sheet. Saving stamps the file, not `current`, and the
     /// app's own write mustn't look like news from another device.
     private var lastWrite: (id: String, at: Date)?
@@ -180,6 +191,7 @@ final class AppState: ObservableObject {
         case .nothing: break
         case .load(let pad):
             current = pad
+            base = pad
             // That's what's on disk, so it isn't an edit to save.
             saveTask?.cancel()
             dirty = false
@@ -255,6 +267,19 @@ final class AppState: ObservableObject {
             return
         }
         openToday()
+    }
+
+    /// ⌘K "Today". False when there is no sheet for today and none is made unasked (the notice says so).
+    @discardableResult
+    func goToToday() -> Bool {
+        switch Resume.today(among: pads, today: todayKey, newSheetEachDay: Self.newSheetEachDay) {
+        case .open(let id): open(id)
+        case .makeToday: flush(); openToday()
+        case .noSheet:
+            notice = "No sheet for today yet. New sheet makes one."
+            return false
+        }
+        return true
     }
 
     /// Today: the most recently updated sheet dated today, or a new one with carry-over.
@@ -346,6 +371,7 @@ final class AppState: ObservableObject {
             dirty = false
             refreshList()
             current = moved
+            base = moved
         } catch { self.error = error.localizedDescription }
     }
 
@@ -370,8 +396,7 @@ final class AppState: ObservableObject {
     /// From ⌘K, with Undo.
     func removeTagUndoably(_ t: String) {
         guard current?.tags.contains(t) == true else { return }
-        keepForUndo("#\(t) removed", undo: "#\(t) comes back")
-        removeTag(t)
+        undoably("#\(t) removed", undo: "#\(t) comes back") { removeTag(t) }
     }
 
     func tagSuggestions(_ prefix: String) -> [(tag: String, count: Int)] {
@@ -451,16 +476,17 @@ final class AppState: ObservableObject {
 
     func deleteTodo(_ id: String) {
         guard let todo = current?.todos.first(where: { $0.id == id }) else { return }
-        keepForUndo("To-do deleted", undo: "“\(todo.text)” comes back")
-        current?.todos.removeAll { $0.id == id }
+        undoably("To-do deleted", undo: "“\(todo.text)” comes back") { current?.todos.removeAll { $0.id == id } }
     }
 
     // MARK: Undo from ⌘K
 
-    /// Keeps the open sheet as it is now, so the change about to be made can be undone for 8 s.
-    func keepForUndo(_ done: String, undo said: String) {
-        guard let pad = current else { return }
-        let undo = SheetUndo(before: pad, done: done, said: said)
+    /// Makes `change` to the open sheet so it can be undone for 8 s, until the sheet is changed again.
+    func undoably(_ done: String, undo said: String, _ change: () -> Void) {
+        guard let pad = current else { change(); return }
+        change()
+        guard let after = current, after != pad else { return }
+        let undo = SheetUndo(before: pad, after: after, done: done, said: said)
         sheetUndo = undo
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 8_000_000_000)
@@ -472,7 +498,8 @@ final class AppState: ObservableObject {
     func undoSheetChange() {
         guard let undo = sheetUndo else { return }
         sheetUndo = nil
-        guard current?.id == undo.before.id else { return }
+        // Only while nothing else has changed since: undo.after is the sheet just after the change.
+        guard current?.id == undo.before.id, current == undo.after else { return }
         current = undo.before
     }
 
@@ -498,18 +525,18 @@ final class AppState: ObservableObject {
 
     func removeTableRow(_ id: String) {
         guard let rows = block(id)?.rows, rows.count > 1 else { return }
-        keepForUndo("Row removed", undo: "The table's last row comes back")
-        mutate(id) { $0.rows = Array(rows.dropLast()) }
+        undoably("Row removed", undo: "The table's last row comes back") { mutate(id) { $0.rows = Array(rows.dropLast()) } }
     }
 
     func removeTableColumn(_ id: String) {
         guard let b = block(id), let rows = b.rows, let n = rows.map(\.count).max(), n > 1 else { return }
-        keepForUndo("Column removed", undo: "The table's last column comes back")
-        mutate(id) { b in
-            let w = Array(TableLayout.widths(for: b).prefix(n - 1))
-            b.rows = rows.map { Array($0.prefix(n - 1)) }
-            b.colWidths = w
-            b.w = max(Block.minWidth, w.reduce(0, +))
+        undoably("Column removed", undo: "The table's last column comes back") {
+            mutate(id) { b in
+                let w = Array(TableLayout.widths(for: b).prefix(n - 1))
+                b.rows = rows.map { Array($0.prefix(n - 1)) }
+                b.colWidths = w
+                b.w = max(Block.minWidth, w.reduce(0, +))
+            }
         }
     }
 
@@ -767,11 +794,24 @@ final class AppState: ObservableObject {
 
     func flush() {
         saveTask?.cancel()
-        guard dirty, let pad = current else { return }
-        dirty = false
+        guard dirty, var pad = current else { return }
+        // Another device saved this sheet since this one read it (both open at once): merge its changes in
+        // rather than writing this copy over them.
+        let mine = pad
+        if let base, base.id == pad.id, let disk = try? store.load(pad.id), disk.updatedAt > base.updatedAt {
+            pad = SheetMerge.merge(base: base, ours: pad, theirs: disk)
+        }
         do {
             let saved = try store.save(pad)
+            // Only once it's written: a failed write stays dirty, so the next flush tries again.
+            dirty = false
+            base = saved
             lastWrite = (saved.id, saved.updatedAt)
+            if pad != mine, current == mine {
+                applyingSave = true
+                current = pad
+                applyingSave = false
+            }
             if let i = pads.firstIndex(where: { $0.id == saved.id }) { pads[i] = saved } else { refreshList() }
         } catch { self.error = error.localizedDescription }
     }

@@ -40,7 +40,19 @@ export async function flush(): Promise<void> {
   saveTimer = undefined;
   const pad = state.current;
   if (!pad) return;
-  try { await api.savePad(pad); } catch (e) { toast(`Could not save: ${e}`); return; }
+  try { await api.savePad(pad); } catch (e) {
+    // Still unsaved: stay dirty and try again, rather than dropping the edit until the next keystroke.
+    toast(`Could not save: ${e}`);
+    if (saveTimer === undefined) {
+      saveTimer = window.setTimeout(() => {
+        if (state.current?.id === pad.id) { void flush(); return; }
+        // Moved to another sheet since: save the one that was edited, not the one open now.
+        saveTimer = undefined;
+        api.savePad(pad).then(() => upsert(pad), (err) => toast(`Could not save: ${err}`));
+      }, 5000);
+    }
+    return;
+  }
   // The store stamps the file, and this write mustn't look like news from another device.
   lastWrite = { id: pad.id, at: (await api.loadPad(pad.id).catch(() => null))?.updatedAt ?? pad.updatedAt };
   upsert(pad);
@@ -67,6 +79,18 @@ export async function openPad(id: string): Promise<void> {
   view.all();
 }
 
+/** Where the app opens (dac1bef): today's sheet when it makes one each day; otherwise the sheet
+ *  last changed, and a first sheet only when there are none. */
+export async function openStart(): Promise<void> {
+  if (prefs.newSheetEachDay) { await openToday(); return; }
+  await refreshPads();
+  const latest = state.pads.reduce<Pad | null>((a, p) => (!a || Date.parse(p.updatedAt) > Date.parse(a.updatedAt) ? p : a), null);
+  if (!latest) { await openToday(); return; }
+  state.current = structuredClone(latest);
+  state.selected = null;
+  view.all();
+}
+
 export async function openToday(): Promise<void> {
   await flush();
   const pad = await api.todayPad();
@@ -84,14 +108,17 @@ let lastToday = todayKey();
 export async function cameBack(): Promise<void> {
   await flush();
   const today = todayKey();
-  const wasToday = lastToday !== today && state.current?.date === lastToday;
+  const wasToday = prefs.newSheetEachDay && lastToday !== today && state.current?.date === lastToday;
   lastToday = today;
   if (wasToday) { await openToday(); return; }
   const id = state.current?.id;
   const fresh = id ? await api.loadPad(id) : null;
   if (state.current?.id !== id || saveTimer !== undefined) return;
   await refreshPads();
-  const seen = lastWrite?.id === id ? lastWrite.at : state.current?.updatedAt ?? "";
+  // Typing during either await makes the copy here the newest: don't replace it.
+  if (state.current?.id !== id || saveTimer !== undefined) return;
+  const lw = lastWrite;
+  const seen = lw && lw.id === id ? lw.at : state.current?.updatedAt ?? "";
   if (fresh && state.current && Date.parse(fresh.updatedAt) > Date.parse(seen)) {
     state.current = fresh;
     upsert(fresh);
@@ -122,10 +149,16 @@ async function tearTo(next: Pad, focusTitle = true): Promise<void> {
   await api.savePad(next).catch((e) => toast(`Could not save: ${e}`));
 }
 
+/** Every id in the store, readable or not, so a new sheet never lands on one (928baea). */
+async function takenIds(): Promise<string[]> {
+  const unreadable = await api.unreadablePads().catch(() => [] as string[]);
+  return [...state.pads.map((p) => p.id), ...unreadable];
+}
+
 export async function newSheetOn(date: string | null): Promise<void> {
   await flush();
   const tags = state.current?.tags.slice() ?? [];
-  await tearTo(newSheet(date, { tags, pinned: date === null }));
+  await tearTo(newSheet(date, { tags, pinned: date === null }, await takenIds()));
 }
 
 export const newSheetToday = () => newSheetOn(todayKey());
@@ -138,7 +171,7 @@ export async function duplicateSheet(): Promise<void> {
     title: `${cur.title || "Untitled sheet"} copy`, tags: cur.tags.slice(), pinned: cur.pinned,
     blocks: cur.blocks.map((b) => ({ ...structuredClone(b), id: uid() })),
     todos: cur.todos.filter((t) => t.status !== "done" && t.text.trim()).map((t) => ({ ...t, id: uid() })),
-  });
+  }, await takenIds());
   await tearTo(copy);
 }
 
@@ -151,7 +184,7 @@ export async function deleteSheet(id: string): Promise<void> {
   if (state.current?.id === id) {
     state.current = null;
     const next = state.pads.find((p) => p.date === dayKey()) ?? state.pads[0];
-    if (next) { state.current = structuredClone(next); view.all(); } else await openToday();
+    if (next) { state.current = structuredClone(next); view.all(); } else await openStart();
   } else view.rail();
   toast(`${copy.title || "Untitled sheet"} deleted`, { label: "Undo", run: async () => { await api.savePad(copy); upsert(copy); view.rail(); } });
 }

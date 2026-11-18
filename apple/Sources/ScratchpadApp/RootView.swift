@@ -164,7 +164,8 @@ struct RootView: View {
         // Getting around
         case .sheets: showList()
         case .today:
-            state.openToday()
+            // Opens today's sheet; makes one only when "New sheet each day" is on (dac1bef).
+            guard state.goToToday() else { break }
             if compact, let id = state.current?.id { phonePath = [id] }
         case .settings: state.showSettings = true
         case .open(let id):

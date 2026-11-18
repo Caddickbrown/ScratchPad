@@ -3,9 +3,9 @@ name: Apple
 on:
   push:
     branches: [master]
-    paths: ["apple/**", "core/**", "shared/**", ".github/workflows/apple.yml"]
+    paths: ["apple/**", "core/**", "shared/**", "kit/swift/**", ".github/workflows/apple.yml"]
   pull_request:
-    paths: ["apple/**", "core/**", "shared/**", ".github/workflows/apple.yml"]
+    paths: ["apple/**", "core/**", "shared/**", "kit/swift/**", ".github/workflows/apple.yml"]
 
 jobs:
   core:
@@ -19,6 +19,8 @@ jobs:
         working-directory: apple
       - run: swift run core-check check
         working-directory: apple
+      - name: ⌘K commands-check
+        run: sh apple/Tests/commands-check/run.sh
 
   app:
     name: Build app (${{ matrix.destination }})
