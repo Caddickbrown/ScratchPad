@@ -10,9 +10,22 @@ use std::process::{Command, Stdio};
 
 const NOW: Date = Date(1_794_000_000_000);
 
+/// The `hammer` example, built here when missing: `cargo test` doesn't always leave
+/// target/<profile>/examples/hammer in place (on a fresh target it isn't built at all, which is how
+/// the Linux CI failed on 18 Nov once npm test passed again).
 fn hammer() -> PathBuf {
     let test = std::env::current_exe().unwrap();
-    test.parent().unwrap().parent().unwrap().join("examples/hammer")
+    let path = test.parent().unwrap().parent().unwrap().join("examples/hammer");
+    if !path.exists() {
+        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+        let mut build = Command::new(cargo);
+        build.args(["build", "-p", "scratchpad-core", "--example", "hammer"]).current_dir(env!("CARGO_MANIFEST_DIR"));
+        if path.parent().and_then(Path::parent).and_then(Path::file_name).map_or(false, |p| p == "release") {
+            build.arg("--release");
+        }
+        assert!(build.status().unwrap().success(), "couldn't build the hammer example");
+    }
+    path
 }
 
 #[test]
