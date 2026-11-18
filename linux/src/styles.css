@@ -2,7 +2,7 @@
 :root, .theme-light {
   --desk: #EDECE7; --paper: #FBFBF9; --ink: #1E1E1C; --ink-2: #4A4A46; --muted: #6B6B66; --rule: #8A8A86; --hairline: #D6D5CF;
   --dot: #C4C3BD; --accent: #2E5BDA; --accent-hover: #1E3FA6; --accent-ink: #FFFFFF; --accent-soft: #E8EDFB;
-  --overdue: #C2410C; --danger-bg: #FCEDE6; --danger-ink: #9A3412; --teal: #0F766E;
+  --overdue: #BE400C; --danger-bg: #FCEDE6; --danger-ink: #9A3412; --teal: #0F766E;
   --chrome: #F4F3EF; --chrome-2: #E6E5DF; --active: #E2E1DB; --cell: #FFFFFF; --head: #EFEEE9;
   --code-bg: #1E1E1C; --code-ink: #FBFBF9; --toast: #1E1E1C; --toast-ink: #FBFBF9; --toast-action: #9DB2FF;
   --shadow: rgba(30,30,28,0.10); --shadow-strong: rgba(30,30,28,0.20); --scrim: rgba(30,30,28,0.42);

@@ -11,7 +11,7 @@ struct Palette {
     static let light = Palette(
         desk: Color(hex: 0xEDECE7), paper: Color(hex: 0xFBFBF9), ink: Color(hex: 0x1E1E1C), muted: Color(hex: 0x6B6B66),
         rule: Color(hex: 0x8A8A86), hairline: Color(hex: 0xD6D5CF), dot: Color(hex: 0xC4C3BD),
-        accent: Color(hex: 0x2E5BDA), accentInk: .white, overdue: Color(hex: 0xC2410C), chrome: Color(hex: 0xF4F3EF),
+        accent: Color(hex: 0x2E5BDA), accentInk: .white, overdue: Color(hex: 0xBE400C), chrome: Color(hex: 0xF4F3EF),
         cell: .white, codeBg: Color(hex: 0x1E1E1C), codeInk: Color(hex: 0xFBFBF9),
         danger: Color(hex: 0xC62828))
 
