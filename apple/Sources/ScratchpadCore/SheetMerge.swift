@@ -10,7 +10,29 @@ import Foundation
 /// there but edited here is kept. The title, tags, date and pinned state go the same way field by field.
 /// Order follows theirs, with ours' new items after.
 public enum SheetMerge {
+    /// `pad` as the file holds it: dates to the second, as `PadJSON` writes them. The copy in memory
+    /// keeps a to-do made this session to the nanosecond, so compared whole it never equals the file's
+    /// copy of it, and a to-do deleted here came back from the other side (review L49).
+    /// Only the dates change; everything else (the core's `extras` too) is kept as it is.
+    public static func asFiled(_ pad: Pad) -> Pad {
+        func second(_ d: Date) -> Date { Date(timeIntervalSince1970: d.timeIntervalSince1970.rounded(.down)) }
+        var p = pad
+        p.createdAt = second(p.createdAt)
+        p.updatedAt = second(p.updatedAt)
+        for i in p.todos.indices { p.todos[i].createdAt = second(p.todos[i].createdAt) }
+        return p
+    }
+
+    /// Whether the file changed since this device read or wrote `base`: by what it holds, not by two
+    /// devices' clocks, which can't tell a save elsewhere in the same second (review L50).
+    public static func changedSince(base: Pad, disk: Pad) -> Bool {
+        var a = asFiled(base), b = asFiled(disk)
+        a.updatedAt = b.updatedAt
+        return a != b
+    }
+
     public static func merge(base: Pad, ours: Pad, theirs: Pad) -> Pad {
+        let base = asFiled(base), ours = asFiled(ours), theirs = asFiled(theirs)
         if ours == base { return theirs }
         if theirs == base { return ours }
         var out = theirs

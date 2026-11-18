@@ -861,7 +861,7 @@ final class AppState: ObservableObject {
         // Another device saved this sheet since this one read it (both open at once): merge its changes in
         // rather than writing this copy over them.
         let mine = pad
-        if let base, base.id == pad.id, let disk = try? store.load(pad.id), disk.updatedAt > base.updatedAt {
+        if let base, base.id == pad.id, let disk = try? store.load(pad.id), SheetMerge.changedSince(base: base, disk: disk) {
             pad = SheetMerge.merge(base: base, ours: pad, theirs: disk)
         }
         do {

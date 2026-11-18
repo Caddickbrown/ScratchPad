@@ -24,6 +24,32 @@ final class SheetMergeTests: XCTestCase {
         XCTAssertEqual(merged.todos[0].text, "Milk x2")
     }
 
+    /// Review L49: the file keeps dates to the second. A to-do made this session (so the copy here
+    /// holds its creation to the nanosecond) and then deleted here must stay deleted when the other
+    /// device's save is merged in, though the file's copy of it differs in the fractions.
+    func testATodoMadeHereThenDeletedStaysDeletedThoughTheFileRoundsItsDate() {
+        let made = Todo(id: "n", text: "New", status: .open, createdAt: t0.addingTimeInterval(0.123456))
+        let base = pad([todo("a", "Milk"), made])
+        let filed = Todo(id: "n", text: "New", status: .open, createdAt: t0)  // as the file has it
+        let theirs = pad([todo("a", "Milk"), filed, todo("b", "Eggs")], title: "Plan (iPad)")
+        var ours = base
+        ours.todos.removeAll { $0.id == "n" }
+        let merged = SheetMerge.merge(base: base, ours: ours, theirs: theirs)
+        XCTAssertEqual(merged.todos.map(\.id), ["a", "b"], "the deleted to-do came back")
+        XCTAssertEqual(merged.title, "Plan (iPad)")
+    }
+
+    /// Review L50: whether to merge is decided by what the file holds, not by two devices' clocks.
+    func testAChangeSavedElsewhereInTheSameSecondStillCounts() {
+        let base = pad([todo("a", "Milk")])
+        let theirs = pad([todo("a", "Milk"), todo("b", "Eggs")])  // same updatedAt to the second
+        XCTAssertTrue(SheetMerge.changedSince(base: base, disk: theirs))
+        XCTAssertFalse(SheetMerge.changedSince(base: base, disk: base))
+        var fractional = base
+        fractional.updatedAt = t0.addingTimeInterval(0.4)
+        XCTAssertFalse(SheetMerge.changedSince(base: fractional, disk: base), "only the file's rounding differs")
+    }
+
     func testEachSideKeepsWhatOnlyItChanged() {
         let base = pad([todo("a", "Milk"), todo("b", "Eggs"), todo("c", "Bread")])
         var ours = base
