@@ -76,6 +76,6 @@ Shortcuts: Ctrl-N new sheet, Ctrl-K search, Ctrl-E export, Ctrl-Shift-T new to-d
 
 ## Not done yet
 
-- iCloud needs the container enabled on the App ID in the developer portal; until then the Apple app stays on the local folder.
+- iCloud: the container `iCloud.com.caddickbrown.scratchpad` is on the App ID (19 Nov) and the app declares it public, so sheets show in Files › iCloud Drive › Scratchpad. Not yet proved syncing between two real devices.
 - Conflict handling when two devices edit the same sheet offline. Last write wins today.
 - Formulas are deliberately basic: no cross-table references, no text functions.

@@ -36,6 +36,13 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         NSHumanReadableCopyright: ""
+        # Sheets live in the iCloud container under Documents/Scratchpad; declaring the container public
+        # is what puts them in Files › iCloud Drive › Scratchpad (and Finder on the Mac).
+        NSUbiquitousContainers:
+          iCloud.com.caddickbrown.scratchpad:
+            NSUbiquitousContainerIsDocumentScopePublic: true
+            NSUbiquitousContainerName: Scratchpad
+            NSUbiquitousContainerSupportedFolderLevels: Any
         # Declaring the external-display scene stops iOS mirroring the app onto a monitor and gives
         # Scratchpad its own window there (monitor mode, Sources/ScratchpadApp/MonitorDisplay.swift).
         # The application role is left out: SwiftUI's WindowGroup supplies it. Multiple scenes must
@@ -60,4 +67,4 @@ targets:
         SWIFT_VERSION: "5.0"
         ENABLE_PREVIEWS: YES
         MARKETING_VERSION: "0.2.0"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "2"

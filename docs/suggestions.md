@@ -108,6 +108,7 @@ doesn't have.
    Files under iCloud Drive, but `Info.plist` and `project.yml` don't declare
    `NSUbiquitousContainers` with `NSUbiquitousContainerIsDocumentScopePublic`. Without it,
    the folder won't appear. Check when the container is enabled.
+   *Done 19 Nov: declared in `project.yml` once the container was on the App ID.*
 
 8. **Sheet deletion is final,** with an 8-second undo for blocks but none for a whole
    sheet (`store.delete`). Orphaned assets staying behind is a deliberate choice, but it
