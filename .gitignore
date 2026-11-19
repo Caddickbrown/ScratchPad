@@ -14,3 +14,4 @@ linux/store/target/
 linux/src-tauri/gen/schemas/
 target/
 apple/Frameworks/
+._*
