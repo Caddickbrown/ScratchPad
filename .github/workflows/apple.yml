@@ -7,6 +7,10 @@ on:
   pull_request:
     paths: ["apple/**", "core/**", "shared/**", "kit/swift/**", ".github/workflows/apple.yml"]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   core:
     name: ScratchpadCore tests
@@ -36,7 +40,8 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo xcode-select -s /Applications/Xcode_16.2.app
       - run: brew install xcodegen
-      - run: rustup target add aarch64-apple-ios
+      # build-core.sh makes a universal Mac slice since 6e19786 (18 Nov): it needs x86_64-apple-darwin too.
+      - run: rustup target add aarch64-apple-ios aarch64-apple-darwin x86_64-apple-darwin
       - run: apple/scripts/build-core.sh
       - run: xcodegen generate
         working-directory: apple

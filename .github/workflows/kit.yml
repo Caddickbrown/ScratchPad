@@ -5,7 +5,14 @@ name: kit
 
 on:
   push:
+    branches: [master]
+    paths-ignore: ['docs/**', '**.md']
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   kit:
