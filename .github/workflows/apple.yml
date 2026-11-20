@@ -2,10 +2,10 @@ name: Apple
 
 on:
   push:
-    branches: [master]
-    paths: ["apple/**", "core/**", "shared/**", "kit/swift/**", ".github/workflows/apple.yml"]
+    tags: ['v*']
   pull_request:
     paths: ["apple/**", "core/**", "shared/**", "kit/swift/**", ".github/workflows/apple.yml"]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

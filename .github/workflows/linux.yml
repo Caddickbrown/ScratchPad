@@ -2,10 +2,10 @@ name: Linux
 
 on:
   push:
-    branches: [master]
-    paths: ["linux/**", "core/**", "shared/**", ".github/workflows/linux.yml"]
+    tags: ['v*']
   pull_request:
     paths: ["linux/**", "core/**", "shared/**", ".github/workflows/linux.yml"]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

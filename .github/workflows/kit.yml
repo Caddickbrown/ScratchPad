@@ -5,8 +5,7 @@ name: kit
 
 on:
   push:
-    branches: [master]
-    paths-ignore: ['docs/**', '**.md']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
